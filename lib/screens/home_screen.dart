@@ -71,12 +71,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Text('Time Remaining',
                         style: TextStyle(fontSize: 16, color: Colors.grey)),
                     const SizedBox(height: 5),
-                    Text(
-                      '$_daysLeft Days',
-                      style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.black87),
+                    RichText(
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '$_daysLeft',
+                            style: const TextStyle(
+                              fontSize: 48, 
+                              fontWeight: FontWeight.w900, 
+                              color: Colors.blueAccent,
+                            ),
+                          ),
+                          const TextSpan(
+                            text: ' Days',
+                            style: TextStyle(
+                              fontSize: 18, 
+                              color: Colors.grey, 
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

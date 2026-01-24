@@ -14,61 +14,101 @@ class _TaskScreenState extends State<TaskScreen> {
   List<Task> _tasks = [];
   final TextEditingController _taskController = TextEditingController();
 
+  // Variable to keep track of current streak (for display only)
+  int _currentStreak = 0;
+
   @override
   void initState() {
     super.initState();
-    _loadAndResetTasks();
+    _loadAndCheckDailyProgress();
   }
 
-  // --- LOGIC: LOAD & DAILY RESET ---
+  // --- STREAK & RESET LOGIC ---
 
-  Future<void> _loadAndResetTasks() async {
+  Future<void> _loadAndCheckDailyProgress() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. Load the Tasks
+    // 1. Load stored Tasks
     final String? tasksString = prefs.getString('tasks_data');
     if (tasksString != null) {
       final List<dynamic> decodedList = jsonDecode(tasksString);
       _tasks = decodedList.map((item) => Task.fromMap(item)).toList();
     }
 
-    // 2. Check the Date
+    // 2. Load stored Streak
+    _currentStreak = prefs.getInt('current_streak') ?? 0;
+
+    // 3. Date Logic
     final String? lastOpenDate = prefs.getString('last_open_date');
-    // Get today's date strictly as YYYY-MM-DD (ignoring time)
-    final String today = DateTime.now().toString().split(' ')[0];
+    final String today = DateTime.now().toIso8601String().split('T')[0];
+    // Calculate yesterday's date string
+    final String yesterday = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .toIso8601String()
+        .split('T')[0];
 
     bool needsSave = false;
 
+    // If the app was NOT opened today (It's a New Day)
     if (lastOpenDate != today) {
-      // It is a NEW DAY! Reset all tasks.
+      // LOGIC: Did we maintain the streak?
+      if (lastOpenDate == yesterday) {
+        // User opened app yesterday. Did they finish all tasks?
+        // We ensure there was at least 1 task to avoid "free" streaks.
+        bool allDone = _tasks.isNotEmpty && _tasks.every((t) => t.isCompleted);
+
+        if (allDone) {
+          _currentStreak++; // Success!
+          _showStreakMessage("🔥 Streak Increased! Day $_currentStreak");
+        } else {
+          _currentStreak = 0; // Missed a task
+          _showStreakMessage("Streak Reset. Don't give up!");
+        }
+      } else {
+        // User skipped a day (or first install)
+        if (lastOpenDate != null) {
+          _currentStreak = 0; // Reset if it's not a fresh install
+          _showStreakMessage("You missed a day. Streak Reset.");
+        }
+      }
+
+      // 4. Save the new Streak
+      await prefs.setInt('current_streak', _currentStreak);
+
+      // 5. Reset Daily Tasks (Uncheck all)
       for (var task in _tasks) {
         task.isCompleted = false;
       }
-      // Update the date to today
+
+      // 6. Update 'Last Open Date' to Today
       await prefs.setString('last_open_date', today);
       needsSave = true;
-
-      // Optional: Show a little message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('It\'s a new day! Tasks have been reset.'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.blueAccent,
-          ),
-        );
-      }
     }
 
-    // 3. Update State & Save if needed
-    setState(() {}); // Refresh UI
+    // 7. Update UI
+    setState(() {});
 
     if (needsSave) {
       _saveTasks();
     }
   }
 
-  // --- EXISTING SAVE LOGIC ---
+  void _showStreakMessage(String message) {
+    // Wait for the build to finish before showing SnackBar
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.blueAccent,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    });
+  }
+
+  // --- SAVE DATA HELPER ---
 
   Future<void> _saveTasks() async {
     final prefs = await SharedPreferences.getInstance();
@@ -77,7 +117,7 @@ class _TaskScreenState extends State<TaskScreen> {
     await prefs.setString('tasks_data', jsonEncode(mapList));
   }
 
-  // --- CRUD OPERATIONS (Unchanged) ---
+  // --- CRUD OPERATIONS ---
 
   void _addTask() {
     if (_taskController.text.trim().isNotEmpty) {
@@ -142,13 +182,33 @@ class _TaskScreenState extends State<TaskScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Daily Tasks')),
+      appBar: AppBar(
+        title: const Text('Daily Tasks'),
+        actions: [
+          // Optional: Show current streak in AppBar
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: Center(
+              child: Text("🔥 $_currentStreak",
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+          )
+        ],
+      ),
       body: _tasks.isEmpty
-          ? const Center(
-              child: Text(
-                'No tasks yet.\nTap the + button to add one!',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.assignment_turned_in, size: 80, color: Colors.grey.shade300),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'No tasks yet.\nTap the + button to add one!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                ],
               ),
             )
           : ListView.builder(
@@ -156,8 +216,11 @@ class _TaskScreenState extends State<TaskScreen> {
               itemBuilder: (context, index) {
                 final task = _tasks[index];
                 return Card(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  elevation: 3, // Slight shadow
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12), // Softer corners
+                  ),
+                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Better spacing
                   child: ListTile(
                     leading: Checkbox(
                       value: task.isCompleted,
