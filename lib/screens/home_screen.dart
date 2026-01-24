@@ -12,6 +12,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _examName = "Loading...";
   int _daysLeft = 0;
+  bool _isCustomExam = false; // New state variable
 
   @override
   void initState() {
@@ -49,13 +50,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final todayStart = DateTime(now.year, now.month, now.day);
     final targetStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     final difference = targetStart.difference(todayStart).inDays;
 
     if (mounted) {
       setState(() {
         _examName = savedExam;
         _daysLeft = difference > 0 ? difference : 0;
+        // Logic: Check if the saved name is NOT in our predefined list
+        _isCustomExam = !AppConstants.availableExams.contains(savedExam);
       });
     }
   }
@@ -77,7 +79,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.black87),
             onPressed: () {
-              // LOGIC UPDATE: Wait for Settings to close, then reload data
               Navigator.pushNamed(context, '/settings').then((_) {
                 _loadExamData();
               });
@@ -108,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       vertical: 32.0, horizontal: 20.0),
                   child: Column(
                     children: [
+                      // --- UPDATED TARGET BADGE ---
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 8),
@@ -115,14 +117,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           color: Colors.blue.shade50,
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Text(
-                          _examName.toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.blue,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2,
-                            fontSize: 14,
-                          ),
+                        // Using Row to place icon next to text
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min, // Shrink to fit text
+                          children: [
+                            Text(
+                              _examName.toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.blue,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                                fontSize: 14,
+                              ),
+                            ),
+                            // Only show icon if it's a custom exam
+                            if (_isCustomExam) ...[
+                              const SizedBox(width: 6),
+                              const Icon(
+                                  Icons
+                                      .edit, // Pencil icon implies custom/editable
+                                  size: 14,
+                                  color: Colors.blue),
+                            ],
+                          ],
                         ),
                       ),
                       const SizedBox(height: 24),

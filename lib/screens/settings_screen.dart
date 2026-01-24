@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/constants.dart'; // Import constants to check list
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,8 +12,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _currentExam = "Loading...";
   String _currentDateDisplay = "";
+  bool _isCustomExam = false; // New state variable
 
-  // Placeholder states for UI toggles
+  // Placeholder states
   bool _isDarkTheme = false;
   bool _showStreak = true;
 
@@ -25,7 +27,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _currentExam = prefs.getString('selected_exam') ?? "Not Selected";
+      final savedExam = prefs.getString('selected_exam') ?? "Not Selected";
+      _currentExam = savedExam;
+
+      // LOGIC: Check if it is custom
+      _isCustomExam = !AppConstants.availableExams.contains(savedExam);
 
       final String? dateStr = prefs.getString('exam_date');
       if (dateStr != null) {
@@ -127,7 +133,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.edit_calendar,
                 iconColor: Colors.blue,
                 title: 'Change Exam Goal',
-                subtitle: _currentExam,
+                // UI UPDATE: Show (Custom) next to name if applicable
+                subtitle:
+                    _isCustomExam ? "$_currentExam (Custom)" : _currentExam,
                 onTap: () {
                   _showConfirmationDialog(
                     title: 'Change Exam?',
@@ -161,28 +169,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          // --- SECTION 2: APP PREFERENCES (PLACEHOLDERS) ---
+          // --- SECTION 2: APP PREFERENCES ---
           _buildSectionHeader(
             title: 'App Preferences',
             description: 'Customize behavior (Coming Soon)',
           ),
           _buildSectionContainer(
             children: [
-              // 1. Notifications (Disabled)
               _buildSettingsTile(
                 icon: Icons.notifications_active,
                 iconColor: Colors.purple,
                 title: 'Daily Reminders',
-                showComingSoon: true, // Shows badge
+                showComingSoon: true,
                 trailing: Switch(
                   value: false,
-                  onChanged: null, // Disabled switch
+                  onChanged: null,
                   activeColor: Colors.blue,
                 ),
               ),
               _buildDivider(),
-
-              // 2. Streak Toggle (UI Only)
               _buildSettingsTile(
                 icon: Icons.local_fire_department,
                 iconColor: Colors.deepOrange,
@@ -198,8 +203,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               _buildDivider(),
-
-              // 3. Dark Mode (UI Only)
               _buildSettingsTile(
                 icon: Icons.dark_mode,
                 iconColor: Colors.indigo,
@@ -341,7 +344,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String? subtitle,
     Widget? trailing,
     VoidCallback? onTap,
-    bool showComingSoon = false, // New parameter
+    bool showComingSoon = false,
   }) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
