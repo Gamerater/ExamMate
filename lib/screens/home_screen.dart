@@ -49,6 +49,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final todayStart = DateTime(now.year, now.month, now.day);
     final targetStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
+
     final difference = targetStart.difference(todayStart).inDays;
 
     if (mounted) {
@@ -72,6 +73,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         automaticallyImplyLeading: false,
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.black87),
+            onPressed: () {
+              // LOGIC UPDATE: Wait for Settings to close, then reload data
+              Navigator.pushNamed(context, '/settings').then((_) {
+                _loadExamData();
+              });
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -155,8 +167,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // --- ANIMATION UPDATE: Bouncing Buttons ---
               _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/tasks'),
                 child: _buildModernButtonContent(
@@ -165,9 +175,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   iconColor: Colors.green,
                 ),
               ),
-
               const SizedBox(height: 16),
-
               _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/progress'),
                 child: _buildModernButtonContent(
@@ -183,7 +191,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  // Refactored content builder for reuse
   Widget _buildModernButtonContent({
     required IconData icon,
     required String label,
@@ -231,7 +238,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
-// --- NEW HELPER WIDGET: Bouncing Button Animation ---
 class _BouncingButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;

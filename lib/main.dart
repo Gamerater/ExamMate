@@ -6,6 +6,7 @@ import 'screens/exam_selection_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/task_screen.dart';
 import 'screens/progress_screen.dart';
+import 'screens/settings_screen.dart';
 
 void main() {
   runApp(const ExamMateApp());
@@ -39,6 +40,7 @@ class ExamMateApp extends StatelessWidget {
         '/exam': (context) => const ExamSelectionScreen(),
         '/tasks': (context) => const TaskScreen(),
         '/progress': (context) => const ProgressScreen(),
+        '/settings': (context) => const SettingsScreen(),
       },
     );
   }
