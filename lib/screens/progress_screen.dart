@@ -26,10 +26,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   Future<void> _loadStatistics() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. Load Streak
     final int streak = prefs.getInt('current_streak') ?? 0;
-
-    // 2. Load Tasks to calculate completion %
     final String? tasksString = prefs.getString('tasks_data');
     List<Task> tasks = [];
 
@@ -38,7 +35,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
       tasks = decodedList.map((item) => Task.fromMap(item)).toList();
     }
 
-    // 3. Calculate Math
     int total = tasks.length;
     int completed = tasks.where((t) => t.isCompleted).length;
     double progress = total == 0 ? 0.0 : (completed / total);
@@ -54,11 +50,21 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }
   }
 
+  // --- COLOR TRANSITION LOGIC ---
+  // 0% - 50%: Red to Yellow
+  // 50% - 100%: Yellow to Green
+  Color _getColorForProgress(double value) {
+    if (value < 0.5) {
+      // Normalize value to 0.0 - 1.0 range for the first half
+      return Color.lerp(Colors.redAccent, Colors.amber, value * 2)!;
+    } else {
+      // Normalize value to 0.0 - 1.0 range for the second half
+      return Color.lerp(Colors.amber, Colors.green, (value - 0.5) * 2)!;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Calculate percentage integer for display (e.g., 0.65 -> 65)
-    final int percentage = (_progressValue * 100).toInt();
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -79,7 +85,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // --- STREAK CARD ---
+                    // Streak Card (Unchanged)
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.orange.shade50,
@@ -126,7 +132,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
                     const SizedBox(height: 30),
 
-                    // --- PROGRESS SECTION ---
+                    // Progress Section
                     const Text(
                       'Daily Goal Completion',
                       style:
@@ -134,16 +140,26 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                     const SizedBox(height: 15),
 
-                    // Progress Bar
+                    // --- ANIMATED PROGRESS BAR ---
                     ClipRRect(
                       borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: _progressValue,
-                        minHeight: 25,
-                        backgroundColor: Colors.grey[300],
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          _progressValue == 1.0 ? Colors.green : Colors.blue,
-                        ),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(begin: 0.0, end: _progressValue),
+                        duration: const Duration(
+                            seconds: 1, milliseconds: 200), // 1.2 seconds
+                        curve:
+                            Curves.easeOutCubic, // Smooth slowdown at the end
+                        builder: (context, value, _) {
+                          return LinearProgressIndicator(
+                            value: value,
+                            minHeight: 25,
+                            backgroundColor: Colors.grey[300],
+                            // Dynamic color based on current animated value
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              _getColorForProgress(value),
+                            ),
+                          );
+                        },
                       ),
                     ),
 
@@ -159,17 +175,26 @@ class _ProgressScreenState extends State<ProgressScreen> {
                               color: Colors.grey[600],
                               fontWeight: FontWeight.bold),
                         ),
-                        Text(
-                          '$percentage%',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 18),
+                        // Animated Percentage Text
+                        TweenAnimationBuilder<int>(
+                          tween: IntTween(
+                              begin: 0, end: (_progressValue * 100).toInt()),
+                          duration:
+                              const Duration(seconds: 1, milliseconds: 200),
+                          builder: (context, value, _) {
+                            return Text(
+                              '$value%',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 18),
+                            );
+                          },
                         ),
                       ],
                     ),
 
                     const SizedBox(height: 40),
 
-                    // --- MOTIVATIONAL QUOTE ---
+                    // Quote (Unchanged)
                     Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
