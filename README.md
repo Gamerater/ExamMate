@@ -1,191 +1,173 @@
-# ExamMate – Competitive Exam Planner App
+# ExamMate – Competitive Exam Planner
 
-ExamMate is a simple Flutter-based Android app designed for Indian students preparing for competitive exams such as JEE, NEET, UPSC, SSC, and Banking. The app focuses on daily consistency, not complexity.
-
-This project is built from scratch by a beginner, using AI for development, testing, and debugging, without any paid tools or APIs.
+Welcome to **ExamMate**, a streamlined, distraction-free planner created for Indian students preparing for competitive exams such as JEE, NEET, UPSC, SSC, Banking, and custom exams. The app is designed from the ground up, focusing on daily consistency and usability over excessive features.
 
 ---
 
-## Features
+## At a Glance
 
-- Exam selection (JEE, NEET, UPSC, SSC, Banking)
-- Exam countdown timer
-- Daily task planner
-- Streak tracking
-- Progress screen
-- Clean, distraction-free UI
-- Local storage only (no login, no backend)
-
----
-
-## Target Users
-
-- Indian competitive exam aspirants
-- Students seeking simple planning, daily discipline, and minimal features
+- **Intuitive Exam Selection:** Quickly choose from JEE, NEET, UPSC, SSC, Banking, or add custom exams.
+- **Personalized Countdown:** Track the number of days remaining until your specific exam date.
+- **Comprehensive Daily Task Planner:** Prioritize, label, and color-code your study tasks for optimal organization.
+- **Streak and Progress Tracking:** Visual tools to monitor consistent study habits and daily accomplishment streaks.
+- **Zero Distractions:** Minimal UI, no ads (premium planned), no sign-in required. All data stays on the device.
+- **100% Offline:** Your data is always stored locally and never leaves your device.
 
 ---
 
-## Tech Stack
+## Who Should Use ExamMate?
 
-| Layer      | Technology                     |
-|------------|-------------------------------|
-| Frontend   | Flutter                       |
-| Language   | Dart                          |
-| Storage    | Local (SharedPreferences)      |
-| Platform   | Android (initial release)      |
-| IDE        | Android Studio                 |
-| AI Usage   | External (ChatGPT or similar)  |
-
-No paid APIs, backend, or in-IDE AI.
+- Exam aspirants seeking a **simple, effective planning tool**
+- Students who value **consistent daily routines and progress tracking**
+- Anyone frustrated with complex, data-collecting or bloated planner apps
 
 ---
 
-## Project Folder Structure
+## Technology Overview
+
+| Layer      | Technology            |
+|------------|----------------------|
+| Frontend   | Flutter (Material 3) |
+| Language   | Dart                 |
+| State      | setState(), StatefulWidgets (no external state management package) |
+| Storage    | SharedPreferences (key-value persistence) |
+| Platform   | Android (initial supported target) |
+| IDE        | Android Studio       |
+
+- **Routing:** Named routes with explicit mapping in `main.dart`
+- **Persistence:** All tasks and app config stored via `SharedPreferences`
+- **No Backend:** All features operate 100% offline, with no API calls or remote storage
+- **No paid APIs:** Entirely free and open local ecosystem
+
+---
+
+## Project Structure
 
 ```
 lib/
-├── main.dart
+├── main.dart                   # Entry point & route configuration
 ├── screens/
-│   ├── splash_screen.dart
-│   ├── exam_selection_screen.dart
-│   ├── home_screen.dart
-│   ├── task_screen.dart
-│   └── progress_screen.dart
+│   ├── splash_screen.dart      # Splash/intro logic with animation
+│   ├── exam_selection_screen.dart    # Exam selection interface
+│   ├── home_screen.dart        # Dashboard with countdown and navigation
+│   ├── task_screen.dart        # Task management (add/edit/prioritize)
+│   ├── progress_screen.dart    # Analytics & streak display
+│   └── settings_screen.dart    # App settings, theme toggling
 ├── models/
-│   └── task.dart
+│   └── task.dart               # Task data model with migration for new fields
 └── utils/
-    └── constants.dart
+    └── constants.dart          # Color values, constant strings, and settings
 ```
 
-Folders:
-- `screens/`: UI screens
-- `models/`: Data models (e.g., Task)
-- `utils/`: Constants, helpers
-- `main.dart`: App entry and routing
+Each directory is single-responsibility, making onboarding and scaling easier.
 
 ---
 
-## App Flow
+## User Journey
 
-1. Launches: Splash Screen
-2. Exam selection
-3. Home dashboard
-4. Daily task management
-5. Streak and progress tracking
+1. **Launch:** User is greeted with an animated splash screen.
+2. **Select Exam & Date:** User sets up a personalized countdown by selecting their exam and exam date.
+3. **Dashboard:** Displays the real-time countdown and a task overview.
+4. **Task Management:** Add, edit, reorder, label, and categorize study tasks. Tasks can be color-coded and prioritized.
+5. **Progress Tracking:** Review daily streak, history, and task statistics.
 
-Navigation uses Flutter Named Routes.
-
----
-
-## Development Approach
-
-- AI is used for writing, reviewing, testing, and debugging code
-- IDE is used to paste code, run the app, and view errors
-- No IDE-integrated AI
+All navigation is handled via Flutter's named routing as defined in `main.dart`.
 
 ---
 
-## AI Workflow
+## Major Features
 
-1. Request code for a single file from AI
-2. Copy-paste into project
-3. Run the app
-4. Copy any errors back to AI and apply fixes
+- **Customizable Exam Selection and Countdown:** Support for both preset and user-defined exams.
+- **Task Handling:** Creation, editing, prioritization, deletion, completion toggling, and labeling of tasks.
+- **Advanced Progress Logic:** Compute streaks, visualize completion stats, and indicate patterns.
+- **Color and Priority Tagging:** Dynamically assign colors and labels to improve task visibility.
+- **Local-first Data Storage:** No data leaves your device for ultimate privacy.
 
----
-
-## Testing
-
-- Manual and AI-assisted testing
-- File-level and navigation tests
-- Edge cases: no tasks, streak reset, app restart
-- No automated tests yet
+**Technical details:**  
+Tasks are stored as JSON-encoded Maps using SharedPreferences. The `Task` model supports migration for new fields, ensuring backward compatibility.
 
 ---
 
-## Debugging
+## Quality & Testing
 
-- All errors are copied exactly and fixed with AI guidance
-- No guessing or silent fixes
+- **Manual Testing:** Comprehensive coverage by actually using edge cases (empty tasks, streak resets, app relaunch, etc.)
+- **Navigation Testing:** All navigation flows validated through repeated cycles.
+- **Error Handling:** All exceptions and edge cases are caught and addressed within UI or logic layers.
+- **Plans for Automated Testing:** Currently using manual QA processes; unit/widget/integration test suites are planned.
 
 ---
 
 ## Dependencies
 
-Minimal dependencies.
+Dependencies are kept minimal and strictly reviewed for necessity:
 
-Example:
 ```yaml
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: ^2.2.2
+  shared_preferences: ^2.3.2
 ```
-Dependencies added only as required.
+No third-party state management or analytics libraries included.
 
 ---
 
 ## Platform Support
 
-- Android (current)
-- iOS (planned)
-- Web (optional, planned)
+- **Android:** Fully supported and stable.
+- **iOS:** In active development, support planned.
+- **Web:** Experimental PWA support is under review.
 
 ---
 
-## Monetization (Planned)
+## Monetization (Planned, non-intrusive)
 
-- Google AdMob (banner, interstitial)
-- Optional premium version:
-  - Ad-free
-  - Unlimited tasks
-  - Planner export (PDF)
-
-Monetization after first stable release.
+- **Optional Google AdMob:** For banner/interstitial ads, only if enabled.
+- **Premium Upgrade:** Removes ads, unlocks unlimited tasks, enables export to PDF planner.
 
 ---
 
-## Privacy Policy
+## Privacy Promise
 
-- No login
-- No personal data collected
-- No backend
-- All data stays on the device
+- No login required.
+- No personal information collected, ever.
+- No backend servers—your entire dataset is only on your device.
 
 ---
 
 ## Roadmap
 
-- Daily task auto-reset
-- Improved streak logic
-- Reminder notifications
-- Dark mode
-- iOS release
-- Ads integration
+- Automatic daily task reset at midnight to encourage healthy study habits
+- Enhanced analytics for streaks and progress computation
+- (Optional) Reminders/notifications (using local notifications library)
+- Support for dark mode and improved accessibility
+- iOS App Store release and Web PWA deployment
+- Monetization only after essential features are fully stable
 
 ---
 
-## Beginner Rules Followed
+## Beginner Philosophy
 
-- One feature at a time
-- One file per screen
-- No premature optimization
-- Avoid overengineering
-- Shipping is prioritized over perfection
+- Focus strictly on **one feature at a time**; ensure stability and clarity.
+- **One Dart file per screen** model to simplify navigation and maintainability.
+- Avoid premature optimization and dependency overuse.
+- Maximize readability and learnability.
 
 ---
 
-## Contribution
+## Contribute
 
-This is a learning-first project. Contributions welcome for:
-- UI improvements
+Contributions are open for:
+
+- UI/UX enhancements
 - Bug fixes
-- Feature suggestions
+- New or experimental features
+
+Explore `lib/` for clear, single-responsibility files. Start small with PRs or issues!
 
 ---
 
-## Final Note
+## Final Thought
 
-This app is built to help learners ship, learn, and grow, not to impress developers.
+ExamMate is built for learners and self-discipline—engineered to help serious students track, plan, and stay consistent in their preparation, leveraging the full potential of Flutter and modern app design principles.
 
 ---
