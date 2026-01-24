@@ -10,21 +10,43 @@ class ExamSelectionScreen extends StatefulWidget {
 }
 
 class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
-  // Use list from AppConstants
   final List<String> _exams = AppConstants.availableExams;
   String? _selectedExam;
 
+  // New variable to store user's custom date
+  DateTime? _selectedDate;
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now()
+          .add(const Duration(days: 90)), // Default ~3 months from now
+      firstDate: DateTime.now(),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
   Future<void> _saveAndContinue() async {
-    if (_selectedExam == null) {
+    // ... (validation logic)
+    if (_selectedExam == null || _selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select an exam to continue')),
+        const SnackBar(content: Text('Please select an exam AND a date')),
       );
       return;
     }
 
     final prefs = await SharedPreferences.getInstance();
+    
+    // PERSISTENCE HAPPENS HERE:
     await prefs.setString('selected_exam', _selectedExam!);
+    await prefs.setString('exam_date', _selectedDate!.toIso8601String());
 
+    // ... (navigation logic)
     if (mounted) {
       Navigator.pushReplacementNamed(context, '/home');
     }
@@ -45,7 +67,9 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 20),
+
+            // Exam Dropdown
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
@@ -71,7 +95,35 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                 ),
               ),
             ),
+
+            const SizedBox(height: 20),
+
+            // Date Picker Section
+            const Text(
+              'When is your exam?',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _pickDate,
+              icon: const Icon(Icons.calendar_today, color: Colors.blue),
+              label: Text(
+                _selectedDate == null
+                    ? 'Select Exam Date'
+                    : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
+                style: const TextStyle(fontSize: 16, color: Colors.black87),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                side: const BorderSide(color: Colors.grey),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+
             const SizedBox(height: 40),
+
             ElevatedButton(
               onPressed: _saveAndContinue,
               style: ElevatedButton.styleFrom(

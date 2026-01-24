@@ -16,21 +16,22 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkUserStatus() async {
-    // Run timer and data loading in parallel for speed
+    // ... (delay logic)
     final delayJob = Future.delayed(const Duration(seconds: 2));
     final prefsJob = SharedPreferences.getInstance();
 
     await delayJob;
     final prefs = await prefsJob;
 
+    // CHECKING PERSISTENCE:
     final String? savedExam = prefs.getString('selected_exam');
 
     if (mounted) {
       if (savedExam != null && savedExam.isNotEmpty) {
-        // User has already set up -> Go to Home
+        // Data exists -> Go to Home (Skip selection)
         Navigator.pushReplacementNamed(context, '/home');
       } else {
-        // First time user -> Go to Selection
+        // No data -> Go to Selection
         Navigator.pushReplacementNamed(context, '/exam');
       }
     }

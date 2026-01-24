@@ -23,25 +23,21 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
-  // --- STREAK & RESET LOGIC ---
+  // --- LOGIC SECTION (Unchanged) ---
 
   Future<void> _loadAndCheckDailyProgress() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // 1. Load stored Tasks
     final String? tasksString = prefs.getString('tasks_data');
     if (tasksString != null) {
       final List<dynamic> decodedList = jsonDecode(tasksString);
       _tasks = decodedList.map((item) => Task.fromMap(item)).toList();
     }
 
-    // 2. Load stored Streak
     _currentStreak = prefs.getInt('current_streak') ?? 0;
 
-    // 3. Date Logic
     final String? lastOpenDate = prefs.getString('last_open_date');
     final String today = DateTime.now().toIso8601String().split('T')[0];
-    // Calculate yesterday's date string
     final String yesterday = DateTime.now()
         .subtract(const Duration(days: 1))
         .toIso8601String()
@@ -49,43 +45,33 @@ class _TaskScreenState extends State<TaskScreen> {
 
     bool needsSave = false;
 
-    // If the app was NOT opened today (It's a New Day)
     if (lastOpenDate != today) {
-      // LOGIC: Did we maintain the streak?
       if (lastOpenDate == yesterday) {
-        // User opened app yesterday. Did they finish all tasks?
-        // We ensure there was at least 1 task to avoid "free" streaks.
         bool allDone = _tasks.isNotEmpty && _tasks.every((t) => t.isCompleted);
-
         if (allDone) {
-          _currentStreak++; // Success!
+          _currentStreak++;
           _showStreakMessage("🔥 Streak Increased! Day $_currentStreak");
         } else {
-          _currentStreak = 0; // Missed a task
+          _currentStreak = 0;
           _showStreakMessage("Streak Reset. Don't give up!");
         }
       } else {
-        // User skipped a day (or first install)
         if (lastOpenDate != null) {
-          _currentStreak = 0; // Reset if it's not a fresh install
+          _currentStreak = 0;
           _showStreakMessage("You missed a day. Streak Reset.");
         }
       }
 
-      // 4. Save the new Streak
       await prefs.setInt('current_streak', _currentStreak);
 
-      // 5. Reset Daily Tasks (Uncheck all)
       for (var task in _tasks) {
         task.isCompleted = false;
       }
 
-      // 6. Update 'Last Open Date' to Today
       await prefs.setString('last_open_date', today);
       needsSave = true;
     }
 
-    // 7. Update UI
     setState(() {});
 
     if (needsSave) {
@@ -94,7 +80,6 @@ class _TaskScreenState extends State<TaskScreen> {
   }
 
   void _showStreakMessage(String message) {
-    // Wait for the build to finish before showing SnackBar
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -108,16 +93,12 @@ class _TaskScreenState extends State<TaskScreen> {
     });
   }
 
-  // --- SAVE DATA HELPER ---
-
   Future<void> _saveTasks() async {
     final prefs = await SharedPreferences.getInstance();
     final List<Map<String, dynamic>> mapList =
         _tasks.map((t) => t.toMap()).toList();
     await prefs.setString('tasks_data', jsonEncode(mapList));
   }
-
-  // --- CRUD OPERATIONS ---
 
   void _addTask() {
     if (_taskController.text.trim().isNotEmpty) {
@@ -179,75 +160,131 @@ class _TaskScreenState extends State<TaskScreen> {
     super.dispose();
   }
 
+  // --- UI SECTION (Improved) ---
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50], // Lighter background
       appBar: AppBar(
-        title: const Text('Daily Tasks'),
+        title: const Text(
+          'Daily Tasks',
+          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.black87),
         actions: [
-          // Optional: Show current streak in AppBar
           Padding(
             padding: const EdgeInsets.only(right: 20),
             child: Center(
-              child: Text("🔥 $_currentStreak",
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.orange.shade100),
+                ),
+                child: Text("🔥 $_currentStreak",
+                    style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.deepOrange)),
+              ),
             ),
           )
         ],
       ),
       body: _tasks.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.assignment_turned_in, size: 80, color: Colors.grey.shade300),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'No tasks yet.\nTap the + button to add one!',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                  ),
-                ],
-              ),
-            )
+          ? _buildEmptyState() // Extracted to a clean helper method
           : ListView.builder(
+              padding: const EdgeInsets.only(top: 10, bottom: 80),
               itemCount: _tasks.length,
               itemBuilder: (context, index) {
                 final task = _tasks[index];
-                return Card(
-                  elevation: 3, // Slight shadow
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12), // Softer corners
-                  ),
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // Better spacing
-                  child: ListTile(
-                    leading: Checkbox(
-                      value: task.isCompleted,
-                      onChanged: (value) => _toggleTask(index),
-                      activeColor: Colors.green,
-                    ),
-                    title: Text(
-                      task.title,
-                      style: TextStyle(
-                        decoration: task.isCompleted
-                            ? TextDecoration.lineThrough
-                            : TextDecoration.none,
-                        color: task.isCompleted ? Colors.grey : Colors.black,
-                      ),
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () => _deleteTask(index),
-                    ),
-                  ),
-                );
+                return _buildTaskCard(
+                    task, index); // Extracted for better styling
               },
             ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
+        // improved FAB
         onPressed: _showAddTaskDialog,
         backgroundColor: Colors.blue,
-        child: const Icon(Icons.add, color: Colors.white),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text("New Task", style: TextStyle(color: Colors.white)),
+      ),
+    );
+  }
+
+  // --- UI HELPERS ---
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(30),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.assignment_add,
+                size: 80, color: Colors.blue.shade200),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'No tasks for today',
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Tap the "+ New Task" button\nto start your daily goals!',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaskCard(Task task, int index) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Transform.scale(
+          scale: 1.2,
+          child: Checkbox(
+            value: task.isCompleted,
+            onChanged: (value) => _toggleTask(index),
+            activeColor: Colors.blue,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          ),
+        ),
+        title: Text(
+          task.title,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+            decoration: task.isCompleted
+                ? TextDecoration.lineThrough
+                : TextDecoration.none,
+            color: task.isCompleted ? Colors.grey : Colors.black87,
+          ),
+        ),
+        trailing: IconButton(
+          icon: Icon(Icons.delete_outline, color: Colors.grey[400]),
+          onPressed: () => _deleteTask(index),
+        ),
       ),
     );
   }
