@@ -39,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final String? savedDateString = prefs.getString('exam_date');
 
     DateTime targetDate;
-
     if (savedDateString != null) {
       targetDate = DateTime.parse(savedDateString);
     } else {
@@ -50,7 +49,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final todayStart = DateTime(now.year, now.month, now.day);
     final targetStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     final difference = targetStart.difference(todayStart).inDays;
 
     if (mounted) {
@@ -63,7 +61,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Use a lighter background for the whole screen
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -73,22 +70,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         centerTitle: true,
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent, // Modern "Floating" look
+        backgroundColor: Colors.transparent,
         elevation: 0,
       ),
       body: SingleChildScrollView(
-        // Safe for smaller screens
         child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- HERO SECTION (COUNTDOWN CARD) ---
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(24),
-                  // Subtle, modern shadow
                   boxShadow: [
                     BoxShadow(
                       color: Colors.blue.withOpacity(0.1),
@@ -102,7 +96,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       vertical: 32.0, horizontal: 20.0),
                   child: Column(
                     children: [
-                      // "Target" Badge
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 8),
@@ -120,10 +113,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
-                      // Huge Countdown Number
                       RichText(
                         textAlign: TextAlign.center,
                         text: TextSpan(
@@ -131,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             TextSpan(
                               text: '$_daysLeft',
                               style: const TextStyle(
-                                fontSize: 64, // Bigger and bolder
+                                fontSize: 64,
                                 fontWeight: FontWeight.w900,
                                 color: Colors.black87,
                                 height: 1.0,
@@ -153,10 +143,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-
               const SizedBox(height: 40),
-
-              // --- ACTIONS HEADER ---
               Padding(
                 padding: const EdgeInsets.only(left: 8.0),
                 child: Text(
@@ -167,27 +154,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       color: Colors.grey[800]),
                 ),
               ),
-
               const SizedBox(height: 16),
 
-              // --- MODERN BUTTONS ---
-
-              // Daily Tasks Button
-              _buildModernButton(
-                icon: Icons.check_circle_outline,
-                label: 'Daily Tasks',
-                iconColor: Colors.green,
+              // --- ANIMATION UPDATE: Bouncing Buttons ---
+              _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/tasks'),
+                child: _buildModernButtonContent(
+                  icon: Icons.check_circle_outline,
+                  label: 'Daily Tasks',
+                  iconColor: Colors.green,
+                ),
               ),
 
               const SizedBox(height: 16),
 
-              // Progress Button
-              _buildModernButton(
-                icon: Icons.bar_chart,
-                label: 'My Progress',
-                iconColor: Colors.purple,
+              _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/progress'),
+                child: _buildModernButtonContent(
+                  icon: Icons.bar_chart,
+                  label: 'My Progress',
+                  iconColor: Colors.purple,
+                ),
               ),
             ],
           ),
@@ -196,12 +183,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  // Helper for consistent, clean buttons
-  Widget _buildModernButton({
+  // Refactored content builder for reuse
+  Widget _buildModernButtonContent({
     required IconData icon,
     required String label,
     required Color iconColor,
-    required VoidCallback onTap,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -215,44 +201,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(vertical: 20.0, horizontal: 20.0),
-            child: Row(
-              children: [
-                // Icon Box
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color:
-                        iconColor.withOpacity(0.1), // Light background for icon
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: iconColor, size: 28),
-                ),
-                const SizedBox(width: 20),
-                // Text
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                const Spacer(),
-                // Arrow indicator
-                Icon(Icons.arrow_forward_ios,
-                    size: 16, color: Colors.grey[300]),
-              ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 20.0),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: iconColor, size: 28),
             ),
-          ),
+            const SizedBox(width: 20),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+            const Spacer(),
+            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[300]),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+// --- NEW HELPER WIDGET: Bouncing Button Animation ---
+class _BouncingButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+
+  const _BouncingButton({required this.child, required this.onTap});
+
+  @override
+  State<_BouncingButton> createState() => _BouncingButtonState();
+}
+
+class _BouncingButtonState extends State<_BouncingButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _controller.forward(),
+      onTapUp: (_) {
+        _controller.reverse();
+        widget.onTap();
+      },
+      onTapCancel: () => _controller.reverse(),
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: widget.child,
       ),
     );
   }

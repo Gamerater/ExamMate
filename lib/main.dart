@@ -22,6 +22,15 @@ class ExamMateApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
+        // --- ANIMATION UPDATE: Global Screen Transitions ---
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android:
+                ZoomPageTransitionsBuilder(), // Modern Android Zoom
+            TargetPlatform.iOS:
+                CupertinoPageTransitionsBuilder(), // Standard iOS Slide
+          },
+        ),
       ),
       initialRoute: '/splash',
       routes: {
