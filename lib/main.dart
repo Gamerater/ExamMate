@@ -8,6 +8,7 @@ import 'screens/home_screen.dart';
 import 'screens/task_screen.dart';
 import 'screens/progress_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/privacy_policy_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -97,8 +98,10 @@ class ExamMateApp extends StatelessWidget {
               hintStyle: TextStyle(color: Colors.grey[600]),
             ),
 
-            // Fix Dialog Backgrounds to match Cards
-            dialogBackgroundColor: const Color(0xFF1E1E1E),
+            // FIX: Use dialogTheme instead of dialogBackgroundColor
+            dialogTheme: const DialogThemeData(
+              backgroundColor: Color(0xFF1E1E1E),
+            ),
           ),
 
           initialRoute: '/splash',
@@ -109,6 +112,7 @@ class ExamMateApp extends StatelessWidget {
             '/tasks': (context) => const TaskScreen(),
             '/progress': (context) => const ProgressScreen(),
             '/settings': (context) => const SettingsScreen(),
+            '/privacy': (context) => const PrivacyPolicyScreen(),
           },
         );
       },

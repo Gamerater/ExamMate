@@ -232,7 +232,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.privacy_tip,
                 iconColor: Colors.grey,
                 title: 'Privacy Policy',
-                onTap: () {},
+                onTap: () {
+                  Navigator.pushNamed(context, '/privacy');
+                },
               ),
             ],
           ),
