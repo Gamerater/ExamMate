@@ -10,17 +10,42 @@ class ProgressScreen extends StatefulWidget {
   State<ProgressScreen> createState() => _ProgressScreenState();
 }
 
-class _ProgressScreenState extends State<ProgressScreen> {
+// 1. Add SingleTickerProviderStateMixin for the AnimationController
+class _ProgressScreenState extends State<ProgressScreen>
+    with SingleTickerProviderStateMixin {
   int _streak = 0;
-  double _progressValue = 0.0;
   int _completedCount = 0;
   int _totalCount = 0;
   bool _isLoading = true;
 
+  // 2. Explicit Animation Controller and Tween
+  late AnimationController _controller;
+  late Animation<double> _animation;
+  double _targetProgress = 0.0;
+
   @override
   void initState() {
     super.initState();
+
+    // Configure the controller for a "Calm" feel
+    // Duration is longer (1.5s) to make it feel relaxed, not rushed.
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+
+    // Initialize with 0. We will update the 'end' value when data loads.
+    _animation = Tween<double>(begin: 0.0, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart),
+    );
+
     _loadStatistics();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   Future<void> _loadStatistics() async {
@@ -37,28 +62,38 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
     int total = tasks.length;
     int completed = tasks.where((t) => t.isCompleted).length;
-    double progress = total == 0 ? 0.0 : (completed / total);
+    // Calculate new target
+    double newProgress = total == 0 ? 0.0 : (completed / total);
 
     if (mounted) {
       setState(() {
         _streak = streak;
         _totalCount = total;
         _completedCount = completed;
-        _progressValue = progress;
+        _targetProgress = newProgress;
         _isLoading = false;
+
+        // 3. Smooth Animation Logic
+        // We create a new Tween starting from the CURRENT value (wherever the bar is now)
+        // to the NEW target. This prevents jumping if the value updates mid-animation.
+        _animation =
+            Tween<double>(begin: _animation.value, end: _targetProgress)
+                .animate(CurvedAnimation(
+          parent: _controller,
+          // easeOutQuart is a very strong "slow down" curve, feeling premium/calm
+          curve: Curves.easeOutQuart,
+        ));
+
+        // Reset and start the animation
+        _controller.forward(from: 0.0);
       });
     }
   }
 
-  // --- COLOR TRANSITION LOGIC ---
-  // 0% - 50%: Red to Yellow
-  // 50% - 100%: Yellow to Green
   Color _getColorForProgress(double value) {
     if (value < 0.5) {
-      // Normalize value to 0.0 - 1.0 range for the first half
       return Color.lerp(Colors.redAccent, Colors.amber, value * 2)!;
     } else {
-      // Normalize value to 0.0 - 1.0 range for the second half
       return Color.lerp(Colors.amber, Colors.green, (value - 0.5) * 2)!;
     }
   }
@@ -85,7 +120,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Streak Card (Unchanged)
+                    // Streak Card
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.orange.shade50,
@@ -132,7 +167,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
                     const SizedBox(height: 30),
 
-                    // Progress Section
                     const Text(
                       'Daily Goal Completion',
                       style:
@@ -140,61 +174,49 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                     const SizedBox(height: 15),
 
-                    // --- ANIMATED PROGRESS BAR ---
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween<double>(begin: 0.0, end: _progressValue),
-                        duration: const Duration(
-                            seconds: 1, milliseconds: 200), // 1.2 seconds
-                        curve:
-                            Curves.easeOutCubic, // Smooth slowdown at the end
-                        builder: (context, value, _) {
-                          return LinearProgressIndicator(
-                            value: value,
-                            minHeight: 25,
-                            backgroundColor: Colors.grey[300],
-                            // Dynamic color based on current animated value
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              _getColorForProgress(value),
+                    // 4. AnimatedBuilder handles the smooth rebuilds
+                    AnimatedBuilder(
+                      animation: _controller,
+                      builder: (context, child) {
+                        return Column(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: LinearProgressIndicator(
+                                value: _animation.value,
+                                minHeight: 25,
+                                backgroundColor: Colors.grey[300],
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  _getColorForProgress(_animation.value),
+                                ),
+                              ),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Stats Text
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '$_completedCount / $_totalCount Tasks',
-                          style: TextStyle(
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.bold),
-                        ),
-                        // Animated Percentage Text
-                        TweenAnimationBuilder<int>(
-                          tween: IntTween(
-                              begin: 0, end: (_progressValue * 100).toInt()),
-                          duration:
-                              const Duration(seconds: 1, milliseconds: 200),
-                          builder: (context, value, _) {
-                            return Text(
-                              '$value%',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 18),
-                            );
-                          },
-                        ),
-                      ],
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '$_completedCount / $_totalCount Tasks',
+                                  style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  '${(_animation.value * 100).toInt()}%',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 40),
 
-                    // Quote (Unchanged)
+                    // Motivational Quote
                     Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
