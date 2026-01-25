@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart'; // 1. IMPORT THIS
 
 // Importing screens
 import 'screens/splash_screen.dart';
@@ -23,13 +24,19 @@ class ExamMateApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
-        // --- ANIMATION UPDATE: Global Screen Transitions ---
+
+        // 2. APPLY GLOBAL FONT HERE
+        // This takes the standard Material text theme and converts
+        // every style (headlines, body text, buttons) to Poppins.
+        textTheme: GoogleFonts.poppinsTextTheme(
+          Theme.of(context).textTheme,
+        ),
+
+        // Keep your existing animation transitions
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
-            TargetPlatform.android:
-                ZoomPageTransitionsBuilder(), // Modern Android Zoom
-            TargetPlatform.iOS:
-                CupertinoPageTransitionsBuilder(), // Standard iOS Slide
+            TargetPlatform.android: ZoomPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
           },
         ),
       ),
