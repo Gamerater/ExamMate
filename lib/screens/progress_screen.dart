@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
+// 1. Import the new quotes file
+import '../utils/motivation_quotes.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -16,6 +18,9 @@ class _ProgressScreenState extends State<ProgressScreen>
   int _completedCount = 0;
   int _totalCount = 0;
   bool _isLoading = true;
+
+  // 2. Variable to store the daily quote
+  String _dailyQuote = "Loading motivation...";
 
   late AnimationController _controller;
   late Animation<double> _animation;
@@ -55,13 +60,18 @@ class _ProgressScreenState extends State<ProgressScreen>
     int completed = tasks.where((t) => t.isCompleted).length;
     double newProgress = total == 0 ? 0.0 : (completed / total);
 
+    // 3. Get the quote based on the loaded streak
+    final String quote = MotivationQuotes.getQuote(streak);
+
     if (mounted) {
       setState(() {
         _streak = streak;
         _totalCount = total;
         _completedCount = completed;
         _targetProgress = newProgress;
+        _dailyQuote = quote; // Store it
         _isLoading = false;
+
         _animation =
             Tween<double>(begin: _animation.value, end: _targetProgress)
                 .animate(
@@ -73,19 +83,11 @@ class _ProgressScreenState extends State<ProgressScreen>
   }
 
   Color _getColorForProgress(double value) {
-    // Use [400] shades for a softer, "calm" look in both Light and Dark modes.
-    // Standard Colors.redAccent can be too aggressive.
-
     if (value < 0.5) {
-      // Transition: Soft Red -> Soft Amber
       return Color.lerp(Colors.red[400], Colors.amber[400], value * 2)!;
     } else {
-      // Transition: Soft Amber -> Soft Green
       return Color.lerp(
-        Colors.amber[400],
-        Colors.green[400],
-        (value - 0.5) * 2,
-      )!;
+          Colors.amber[400], Colors.green[400], (value - 0.5) * 2)!;
     }
   }
 
@@ -116,10 +118,9 @@ class _ProgressScreenState extends State<ProgressScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // --- STREAK CARD ---
+                    // Streak Card
                     Container(
                       decoration: BoxDecoration(
-                        // FIX: Use opacity for dark mode safe tint
                         color: Colors.orange.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(20),
                         border:
@@ -174,7 +175,6 @@ class _ProgressScreenState extends State<ProgressScreen>
                     ),
                     const SizedBox(height: 15),
 
-                    // --- PROGRESS BAR ---
                     AnimatedBuilder(
                       animation: _controller,
                       builder: (context, child) {
@@ -185,7 +185,6 @@ class _ProgressScreenState extends State<ProgressScreen>
                               child: LinearProgressIndicator(
                                 value: _animation.value,
                                 minHeight: 25,
-                                // FIX: Darker background track for dark mode
                                 backgroundColor: isDark
                                     ? Colors.grey[800]
                                     : Colors.grey[300],
@@ -219,11 +218,10 @@ class _ProgressScreenState extends State<ProgressScreen>
 
                     const SizedBox(height: 40),
 
-                    // --- QUOTE CARD ---
+                    // 4. Motivation Card with Dynamic Quote
                     Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        // FIX: Use theme card color
                         color: theme.cardColor,
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
@@ -249,11 +247,12 @@ class _ProgressScreenState extends State<ProgressScreen>
                           const SizedBox(width: 16),
                           Expanded(
                             child: Text(
-                              '"Success is the sum of small efforts, repeated day in and day out."',
+                              _dailyQuote, // Display the stored quote
                               style: TextStyle(
                                 fontStyle: FontStyle.italic,
                                 color: theme.textTheme.bodyLarge?.color,
                                 height: 1.4,
+                                fontSize: 15, // Slightly larger for readability
                               ),
                             ),
                           ),

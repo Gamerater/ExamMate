@@ -21,17 +21,51 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
+  // 1. IMPROVED INIT LOGIC
   Future<void> _loadAndCheckDailyProgress() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // Load Tasks
     final String? tasksString = prefs.getString('tasks_data');
     if (tasksString != null) {
       final List<dynamic> decodedList = jsonDecode(tasksString);
       _tasks = decodedList.map((item) => Task.fromMap(item)).toList();
     }
+
+    // Load Streak Data
     _currentStreak = prefs.getInt('current_streak') ?? 0;
+    final String? lastCompletionDate = prefs.getString('last_completion_date');
+    final String? lastOpenDate = prefs.getString('last_open_date');
 
-    // Date checking logic (omitted for brevity, assume unchanged)
+    final DateTime now = DateTime.now();
+    final String todayKey =
+        "${now.year}-${now.month}-${now.day}"; // Normalize to Day
 
+    // CHECK FOR MISSED DAY (Reset Logic)
+    if (lastOpenDate != null && lastOpenDate != todayKey) {
+      // It's a new day. Did we complete yesterday?
+      final DateTime yesterday = DateTime(now.year, now.month, now.day)
+          .subtract(const Duration(days: 1));
+      final String yesterdayKey =
+          "${yesterday.year}-${yesterday.month}-${yesterday.day}";
+
+      // If the last completion was NOT yesterday, reset streak to 0.
+      if (lastCompletionDate != yesterdayKey) {
+        _currentStreak = 0;
+        await prefs.setInt('current_streak', 0);
+      }
+
+      // Reset checkmarks for the new day
+      for (final t in _tasks) {
+        t.isCompleted = false;
+      }
+      await _saveTasks();
+    }
+
+    // Save "Today" as the last opened date
+    await prefs.setString('last_open_date', todayKey);
+
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -53,11 +87,53 @@ class _TaskScreenState extends State<TaskScreen> {
     }
   }
 
+  // 2. NEW COMPLETION CHECKER
+  Future<void> _checkDailyCompletion() async {
+    // 1. Safety Checks
+    if (_tasks.isEmpty) return;
+
+    // 2. Are ALL tasks done?
+    final bool allDone = _tasks.every((t) => t.isCompleted);
+
+    if (allDone) {
+      final prefs = await SharedPreferences.getInstance();
+      final String? lastCompletionDate =
+          prefs.getString('last_completion_date');
+
+      final DateTime now = DateTime.now();
+      final String todayKey = "${now.year}-${now.month}-${now.day}";
+
+      // 3. Prevent Double Counting
+      if (lastCompletionDate != todayKey) {
+        // INCREMENT STREAK!
+        final int newStreak = _currentStreak + 1;
+        await prefs.setInt('current_streak', newStreak);
+        await prefs.setString('last_completion_date', todayKey);
+
+        if (!mounted) return;
+        setState(() {
+          _currentStreak = newStreak;
+        });
+
+        // Optional: Celebration
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🎉 Daily Goal Complete! Streak Increased!"),
+          ),
+        );
+      }
+    }
+  }
+
+  // 3. UPDATED TOGGLE METHOD
   void _toggleTask(int index) {
     setState(() {
       _tasks[index].isCompleted = !_tasks[index].isCompleted;
     });
     _saveTasks();
+
+    // TRIGGER THE CHECK IMMEDIATELY
+    _checkDailyCompletion();
   }
 
   void _deleteTask(int index) {
