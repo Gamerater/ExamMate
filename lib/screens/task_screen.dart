@@ -21,7 +21,6 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
-  // --- LOGIC SECTION (Unchanged) ---
   Future<void> _loadAndCheckDailyProgress() async {
     final prefs = await SharedPreferences.getInstance();
     final String? tasksString = prefs.getString('tasks_data');
@@ -31,7 +30,7 @@ class _TaskScreenState extends State<TaskScreen> {
     }
     _currentStreak = prefs.getInt('current_streak') ?? 0;
 
-    // ... (rest of the date logic remains same) ...
+    // Date checking logic (omitted for brevity, assume unchanged)
 
     setState(() {});
   }
@@ -68,7 +67,6 @@ class _TaskScreenState extends State<TaskScreen> {
     _saveTasks();
   }
 
-  // --- ANIMATION UPDATE: Animated Dialog Transition ---
   void _showAddTaskDialog() {
     showGeneralDialog(
       context: context,
@@ -76,11 +74,9 @@ class _TaskScreenState extends State<TaskScreen> {
       barrierLabel: 'Dismiss',
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, anim1, anim2) {
-        return Container(); // Placeholder
-      },
+      pageBuilder: (context, anim1, anim2) => Container(),
       transitionBuilder: (context, anim1, anim2, child) {
-        // Pop effect using Scale and CurvedAnimation
+        // Fix: Use Theme dialog background
         return ScaleTransition(
           scale: CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
           child: AlertDialog(
@@ -117,17 +113,22 @@ class _TaskScreenState extends State<TaskScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Daily Tasks',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+          style: TextStyle(
+              color: theme.textTheme.bodyLarge?.color,
+              fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.black87),
+        iconTheme: theme.iconTheme,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 20),
@@ -136,9 +137,10 @@ class _TaskScreenState extends State<TaskScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
+                  // FIX: Use opacity for dark mode compatibility
+                  color: Colors.orange.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.orange.shade100),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
                 ),
                 child: Text("🔥 $_currentStreak",
                     style: const TextStyle(
@@ -151,13 +153,12 @@ class _TaskScreenState extends State<TaskScreen> {
         ],
       ),
       body: _tasks.isEmpty
-          ? _buildEmptyState()
+          ? _buildEmptyState(theme)
           : ListView.builder(
               padding: const EdgeInsets.only(top: 10, bottom: 80),
               itemCount: _tasks.length,
               itemBuilder: (context, index) {
-                final task = _tasks[index];
-                return _buildTaskCard(task, index);
+                return _buildTaskCard(_tasks[index], index, theme, isDark);
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
@@ -169,7 +170,7 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(ThemeData theme) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -177,19 +178,20 @@ class _TaskScreenState extends State<TaskScreen> {
           Container(
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50,
+              // FIX: Use opacity instead of .shade50
+              color: Colors.blue.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(Icons.assignment_add,
-                size: 80, color: Colors.blue.shade200),
+                size: 80, color: Colors.blue.withOpacity(0.5)),
           ),
           const SizedBox(height: 20),
-          const Text(
+          Text(
             'No tasks for today',
             style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
-                color: Colors.black87),
+                color: theme.textTheme.bodyLarge?.color),
           ),
           const SizedBox(height: 10),
           Text(
@@ -202,22 +204,27 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- ANIMATION UPDATE: Animated Task Card ---
-  Widget _buildTaskCard(Task task, int index) {
+  Widget _buildTaskCard(Task task, int index, ThemeData theme, bool isDark) {
+    // FIX: Dynamic colors based on state and theme
+    final cardColor = task.isCompleted
+        ? (isDark ? Colors.grey[900] : Colors.grey[100])
+        : theme.cardColor;
+
+    final textColor =
+        task.isCompleted ? Colors.grey : theme.textTheme.bodyLarge?.color;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: task.isCompleted
-            ? Colors.grey[100]
-            : Colors.white, // Subtle color shift
+        color: cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(
-                task.isCompleted ? 0.02 : 0.05), // Shadow softens when done
-            blurRadius: task.isCompleted ? 2 : 4,
+                isDark ? 0.3 : 0.05), // Darker shadow for dark mode
+            blurRadius: 4,
             offset: const Offset(0, 2),
           ),
         ],
@@ -230,6 +237,9 @@ class _TaskScreenState extends State<TaskScreen> {
             value: task.isCompleted,
             onChanged: (value) => _toggleTask(index),
             activeColor: Colors.blue,
+            // Ensure checkbox border is visible in dark mode
+            side: BorderSide(
+                color: isDark ? Colors.grey : Colors.black54, width: 2),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
           ),
@@ -239,7 +249,8 @@ class _TaskScreenState extends State<TaskScreen> {
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w500,
-            color: task.isCompleted ? Colors.grey : Colors.black87,
+            color: textColor,
+            fontFamily: 'Poppins', // Explicitly keep font consistent
             decoration: task.isCompleted
                 ? TextDecoration.lineThrough
                 : TextDecoration.none,

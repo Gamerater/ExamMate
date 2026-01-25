@@ -12,7 +12,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _examName = "Loading...";
   int _daysLeft = 0;
-  bool _isCustomExam = false; // New state variable
+  bool _isCustomExam = false;
 
   @override
   void initState() {
@@ -56,7 +56,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       setState(() {
         _examName = savedExam;
         _daysLeft = difference > 0 ? difference : 0;
-        // Logic: Check if the saved name is NOT in our predefined list
         _isCustomExam = !AppConstants.availableExams.contains(savedExam);
       });
     }
@@ -64,20 +63,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Access current theme colors
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.textTheme.bodyLarge?.color;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      // 1. Use Theme Background
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Dashboard',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         automaticallyImplyLeading: false,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings, color: Colors.black87),
+            icon: Icon(Icons.settings, color: textColor),
             onPressed: () {
               Navigator.pushNamed(context, '/settings').then((_) {
                 _loadExamData();
@@ -94,7 +97,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  // 2. Use Theme Card Color
+                  color: theme.cardColor,
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
@@ -109,17 +113,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       vertical: 32.0, horizontal: 20.0),
                   child: Column(
                     children: [
-                      // --- UPDATED TARGET BADGE ---
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.blue.shade50,
+                          // 3. Dynamic Accent Color (Opacity works on both modes)
+                          color: Colors.blue.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(20),
                         ),
-                        // Using Row to place icon next to text
                         child: Row(
-                          mainAxisSize: MainAxisSize.min, // Shrink to fit text
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               _examName.toUpperCase(),
@@ -130,14 +133,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 fontSize: 14,
                               ),
                             ),
-                            // Only show icon if it's a custom exam
                             if (_isCustomExam) ...[
                               const SizedBox(width: 6),
-                              const Icon(
-                                  Icons
-                                      .edit, // Pencil icon implies custom/editable
-                                  size: 14,
-                                  color: Colors.blue),
+                              const Icon(Icons.edit,
+                                  size: 14, color: Colors.blue),
                             ],
                           ],
                         ),
@@ -149,10 +148,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           children: [
                             TextSpan(
                               text: '$_daysLeft',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 64,
                                 fontWeight: FontWeight.w900,
-                                color: Colors.black87,
+                                // 4. Dynamic Text Color
+                                color: textColor,
                                 height: 1.0,
                               ),
                             ),
@@ -178,15 +178,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 child: Text(
                   'Quick Actions',
                   style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800]),
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark
+                        ? Colors.grey[300]
+                        : Colors.grey[800], // Adjust for dark mode
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
               _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/tasks'),
                 child: _buildModernButtonContent(
+                  context,
                   icon: Icons.check_circle_outline,
                   label: 'Daily Tasks',
                   iconColor: Colors.green,
@@ -196,6 +200,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/progress'),
                 child: _buildModernButtonContent(
+                  context,
                   icon: Icons.bar_chart,
                   label: 'My Progress',
                   iconColor: Colors.purple,
@@ -208,14 +213,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildModernButtonContent({
+  Widget _buildModernButtonContent(
+    BuildContext context, {
     required IconData icon,
     required String label,
     required Color iconColor,
   }) {
+    final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor, // Dynamic Background
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -240,10 +247,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const SizedBox(width: 20),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: Colors.black87,
+                color: theme.textTheme.bodyLarge?.color, // Dynamic Text
               ),
             ),
             const Spacer(),
@@ -255,12 +262,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
+// Bouncing Button remains exactly the same...
 class _BouncingButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
-
   const _BouncingButton({required this.child, required this.onTap});
-
   @override
   State<_BouncingButton> createState() => _BouncingButtonState();
 }
@@ -269,17 +275,13 @@ class _BouncingButtonState extends State<_BouncingButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
-
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 100),
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+        vsync: this, duration: const Duration(milliseconds: 100));
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -297,10 +299,7 @@ class _BouncingButtonState extends State<_BouncingButton>
         widget.onTap();
       },
       onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: widget.child,
-      ),
+      child: ScaleTransition(scale: _scaleAnimation, child: widget.child),
     );
   }
 }

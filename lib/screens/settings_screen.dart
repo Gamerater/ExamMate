@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../utils/constants.dart'; // Import constants to check list
+import '../main.dart'; // Import main.dart to access themeNotifier
+import '../utils/constants.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,9 +13,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _currentExam = "Loading...";
   String _currentDateDisplay = "";
-  bool _isCustomExam = false; // New state variable
+  bool _isCustomExam = false;
 
-  // Placeholder states
+  // State for toggles
   bool _isDarkTheme = false;
   bool _showStreak = true;
 
@@ -29,8 +30,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       final savedExam = prefs.getString('selected_exam') ?? "Not Selected";
       _currentExam = savedExam;
-
-      // LOGIC: Check if it is custom
       _isCustomExam = !AppConstants.availableExams.contains(savedExam);
 
       final String? dateStr = prefs.getString('exam_date');
@@ -40,9 +39,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         _currentDateDisplay = "Not Set";
       }
+
+      // Load Dark Mode State
+      _isDarkTheme = prefs.getBool('is_dark_mode') ?? false;
     });
   }
 
+  Future<void> _toggleTheme(bool isDark) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_dark_mode', isDark);
+
+    setState(() {
+      _isDarkTheme = isDark;
+    });
+
+    // Update the Global App Theme immediately
+    ExamMateApp.themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
+  }
+
+  // ... (Keep existing helpers: _pickNewDate, _showConfirmationDialog) ...
   Future<void> _pickNewDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -54,15 +69,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (picked != null) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('exam_date', picked.toIso8601String());
-
       setState(() {
         _currentDateDisplay = "${picked.day}/${picked.month}/${picked.year}";
       });
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Exam date updated!")),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text("Exam date updated!")));
       }
     }
   }
@@ -79,26 +91,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return AlertDialog(
           title: Text(title),
           content: SingleChildScrollView(
-            child: ListBody(
-              children: <Widget>[
-                Text(content),
-              ],
-            ),
-          ),
+              child: ListBody(children: <Widget>[Text(content)])),
           actions: <Widget>[
             TextButton(
-              child: const Text('Cancel'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
+                child: const Text('Cancel'),
+                onPressed: () => Navigator.of(context).pop()),
             ElevatedButton(
-              child: const Text('Confirm'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                onConfirm();
-              },
-            ),
+                child: const Text('Confirm'),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  onConfirm();
+                }),
           ],
         );
       },
@@ -107,43 +110,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Access current theme colors for dynamic UI
+    final theme = Theme.of(context);
+    final textColor = theme.textTheme.bodyLarge?.color;
+    final iconColor = theme.iconTheme.color;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Settings',
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold),
+          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black87),
+        iconTheme: IconThemeData(color: iconColor),
       ),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         children: [
-          // --- SECTION 1: EXAM ---
+          // --- SECTION 1 ---
           _buildSectionHeader(
-            title: 'Exam Preferences',
-            description: 'Manage your target goal and timeline',
-          ),
+              title: 'Exam Preferences',
+              description: 'Manage your target goal and timeline'),
           _buildSectionContainer(
             children: [
               _buildSettingsTile(
                 icon: Icons.edit_calendar,
                 iconColor: Colors.blue,
                 title: 'Change Exam Goal',
-                // UI UPDATE: Show (Custom) next to name if applicable
                 subtitle:
                     _isCustomExam ? "$_currentExam (Custom)" : _currentExam,
                 onTap: () {
                   _showConfirmationDialog(
                     title: 'Change Exam?',
                     content:
-                        'Changing your exam goal will update your dashboard target. Your current tasks will remain saved.',
-                    onConfirm: () {
-                      Navigator.pushNamed(context, '/exam');
-                    },
+                        'Changing your exam goal will update your dashboard target.',
+                    onConfirm: () => Navigator.pushNamed(context, '/exam'),
                   );
                 },
               ),
@@ -156,11 +160,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onTap: () {
                   _showConfirmationDialog(
                     title: 'Update Deadline?',
-                    content:
-                        'This will recalculate the "Days Left" countdown on your dashboard.',
-                    onConfirm: () {
-                      _pickNewDate();
-                    },
+                    content: 'This will recalculate the "Days Left" countdown.',
+                    onConfirm: _pickNewDate,
                   );
                 },
               ),
@@ -169,51 +170,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          // --- SECTION 2: APP PREFERENCES ---
+          // --- SECTION 2 ---
           _buildSectionHeader(
-            title: 'App Preferences',
-            description: 'Customize behavior (Coming Soon)',
-          ),
+              title: 'App Preferences', description: 'Customize behavior'),
           _buildSectionContainer(
             children: [
               _buildSettingsTile(
                 icon: Icons.notifications_active,
                 iconColor: Colors.purple,
                 title: 'Daily Reminders',
-                showComingSoon: true,
+                showComingSoon: true, // Still coming soon
                 trailing: Switch(
-                  value: false,
-                  onChanged: null,
-                  activeColor: Colors.blue,
-                ),
+                    value: false, onChanged: null, activeColor: Colors.blue),
               ),
               _buildDivider(),
               _buildSettingsTile(
                 icon: Icons.local_fire_department,
                 iconColor: Colors.deepOrange,
                 title: 'Show Streak',
-                showComingSoon: true,
+                showComingSoon: true, // Still coming soon
                 trailing: Switch(
-                  value: _showStreak,
-                  onChanged: (val) {
-                    setState(() => _showStreak = val);
-                    _showComingSoonToast();
-                  },
-                  activeColor: Colors.deepOrange,
-                ),
+                    value: _showStreak,
+                    onChanged: (val) => setState(() => _showStreak = val),
+                    activeColor: Colors.deepOrange),
               ),
               _buildDivider(),
+
+              // --- DARK MODE (ACTIVE) ---
               _buildSettingsTile(
                 icon: Icons.dark_mode,
                 iconColor: Colors.indigo,
                 title: 'Dark Mode',
-                showComingSoon: true,
+                showComingSoon: false, // REMOVED BADGE
                 trailing: Switch(
                   value: _isDarkTheme,
-                  onChanged: (val) {
-                    setState(() => _isDarkTheme = val);
-                    _showComingSoonToast();
-                  },
+                  onChanged: _toggleTheme, // CONNECTED LOGIC
                   activeColor: Colors.indigo,
                 ),
               ),
@@ -222,22 +213,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          // --- SECTION 3: ABOUT ---
+          // --- SECTION 3 ---
           _buildSectionHeader(
-            title: 'About',
-            description: 'App info and legal',
-          ),
+              title: 'About', description: 'App info and legal'),
           _buildSectionContainer(
             children: [
               _buildSettingsTile(
                 icon: Icons.info,
                 iconColor: Colors.teal,
                 title: 'Version',
-                trailing: const Text(
-                  '1.0.0',
-                  style: TextStyle(
-                      color: Colors.grey, fontWeight: FontWeight.w500),
-                ),
+                trailing: const Text('1.0.0',
+                    style: TextStyle(
+                        color: Colors.grey, fontWeight: FontWeight.w500)),
                 onTap: null,
               ),
               _buildDivider(),
@@ -245,21 +232,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.privacy_tip,
                 iconColor: Colors.grey,
                 title: 'Privacy Policy',
-                onTap: () {
-                  // TODO: Open Privacy Policy
-                },
+                onTap: () {},
               ),
             ],
           ),
 
           const SizedBox(height: 40),
-
           const Center(
-            child: Text(
-              'Made with ❤️ for Students',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-          ),
+              child: Text('Made with ❤️ for Students',
+                  style: TextStyle(color: Colors.grey, fontSize: 12))),
           const SizedBox(height: 20),
         ],
       ),
@@ -267,42 +248,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- UI HELPER METHODS ---
-
-  void _showComingSoonToast() {
-    ScaffoldMessenger.of(context).removeCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("This feature is coming soon!"),
-        duration: Duration(seconds: 1),
-      ),
-    );
-  }
-
   Widget _buildSectionHeader({required String title, String? description}) {
     return Padding(
       padding: const EdgeInsets.only(left: 8, bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[700],
-              letterSpacing: 1.2,
-            ),
-          ),
+          Text(title.toUpperCase(),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[600],
+                  letterSpacing: 1.2)),
           if (description != null) ...[
             const SizedBox(height: 4),
-            Text(
-              description,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[500],
-                fontWeight: FontWeight.w400,
-              ),
-            ),
+            Text(description,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[500],
+                    fontWeight: FontWeight.w400))
           ],
         ],
       ),
@@ -310,31 +274,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildSectionContainer({required List<Widget> children}) {
+    final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor, // Dynamic Background
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4))
         ],
       ),
-      child: Column(
-        children: children,
-      ),
+      child: Column(children: children),
     );
   }
 
   Widget _buildDivider() {
+    final theme = Theme.of(context);
     return Divider(
-      height: 1,
-      thickness: 0.5,
-      color: Colors.grey[200],
-      indent: 60,
-    );
+        height: 1, thickness: 0.5, color: theme.dividerColor, indent: 60);
   }
 
   Widget _buildSettingsTile({
@@ -346,39 +305,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     VoidCallback? onTap,
     bool showComingSoon = false,
   }) {
+    final theme = Theme.of(context);
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: iconColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-        ),
+            color: iconColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10)),
         child: Icon(icon, color: iconColor, size: 22),
       ),
       title: Row(
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
-          ),
+          Text(title,
+              style: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 16,
+                  color: theme.textTheme.bodyLarge?.color)),
           if (showComingSoon) ...[
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.orange.shade100),
-              ),
-              child: const Text(
-                'SOON',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.orange,
-                ),
-              ),
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange.shade100)),
+              child: const Text('SOON',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange)),
             ),
           ],
         ],
