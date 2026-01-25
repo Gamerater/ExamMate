@@ -29,9 +29,15 @@ class _ProgressScreenState extends State<ProgressScreen>
   @override
   void initState() {
     super.initState();
+
+    // FIX 2: Initialize Quote Synchronously (No "Loading..." flash)
+    // We fetch a quote immediately. It will update correctly if streak changes later.
+    _dailyQuote = MotivationQuotes.getQuote(0);
+
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      // FIX 3: Dynamic Animation Setup (default duration; updated on load)
+      duration: const Duration(milliseconds: 1000),
     );
     _animation = Tween<double>(begin: 0.0, end: 0.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutQuart),
@@ -71,6 +77,12 @@ class _ProgressScreenState extends State<ProgressScreen>
         _targetProgress = newProgress;
         _dailyQuote = quote; // Store it
         _isLoading = false;
+
+        // FIX 3 (Continued): Dynamic Duration based on travel distance
+        // Logic: Small progress change = fast animation. Large change = slower animation.
+        final double travel = (_targetProgress - _animation.value).abs();
+        final int durationMs = (travel * 1500).toInt().clamp(800, 2000);
+        _controller.duration = Duration(milliseconds: durationMs);
 
         _animation =
             Tween<double>(begin: _animation.value, end: _targetProgress)

@@ -12,6 +12,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _examName = "Loading...";
   int _daysLeft = 0;
+  int _rawDifference = 0; // Tracks raw day difference (can be negative)
   bool _isCustomExam = false;
 
   @override
@@ -55,7 +56,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (mounted) {
       setState(() {
         _examName = savedExam;
-        _daysLeft = difference > 0 ? difference : 0;
+        // FIX: Handle Past Dates (avoid showing 0/negative as "Days Left")
+        if (difference < 0) {
+          _daysLeft = 0; // Clamp UI counter to 0
+        } else {
+          _daysLeft = difference;
+        }
+
+        _rawDifference = difference; // Store raw value for logic checks
         _isCustomExam = !AppConstants.availableExams.contains(savedExam);
       });
     }
@@ -147,18 +155,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         text: TextSpan(
                           children: [
                             TextSpan(
-                              text: '$_daysLeft',
+                              // Display "Done" if date is past
+                              text: _rawDifference < 0 ? "Done" : '$_daysLeft',
                               style: TextStyle(
-                                fontSize: 64,
+                                fontSize: _rawDifference < 0 ? 48 : 64,
                                 fontWeight: FontWeight.w900,
                                 // 4. Dynamic Text Color
                                 color: textColor,
                                 height: 1.0,
                               ),
                             ),
-                            const TextSpan(
-                              text: '\nDays Left',
-                              style: TextStyle(
+                            TextSpan(
+                              text: _rawDifference < 0
+                                  ? '\nGoal Completed'
+                                  : '\nDays Left',
+                              style: const TextStyle(
                                 fontSize: 16,
                                 color: Colors.grey,
                                 fontWeight: FontWeight.w500,

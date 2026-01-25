@@ -33,40 +33,55 @@ class _TaskScreenState extends State<TaskScreen> {
     }
 
     // Load Streak Data
-    _currentStreak = prefs.getInt('current_streak') ?? 0;
+    int streak = prefs.getInt('current_streak') ?? 0;
     final String? lastCompletionDate = prefs.getString('last_completion_date');
     final String? lastOpenDate = prefs.getString('last_open_date');
 
     final DateTime now = DateTime.now();
-    final String todayKey =
-        "${now.year}-${now.month}-${now.day}"; // Normalize to Day
+    final DateTime todayDate = DateTime(now.year, now.month, now.day);
+    final String todayKey = "${now.year}-${now.month}-${now.day}";
 
-    // CHECK FOR MISSED DAY (Reset Logic)
-    if (lastOpenDate != null && lastOpenDate != todayKey) {
-      // It's a new day. Did we complete yesterday?
-      final DateTime yesterday = DateTime(now.year, now.month, now.day)
-          .subtract(const Duration(days: 1));
-      final String yesterdayKey =
-          "${yesterday.year}-${yesterday.month}-${yesterday.day}";
-
-      // If the last completion was NOT yesterday, reset streak to 0.
-      if (lastCompletionDate != yesterdayKey) {
-        _currentStreak = 0;
+    // --- CRITICAL FIX: STREAK RESET LOGIC ---
+    // Compare "Today" vs "Last Completion Date" by whole days (ignore time).
+    // difference == 0: Completed today (streak safe)
+    // difference == 1: Completed yesterday (streak safe)
+    // difference > 1: Missed yesterday (reset streak)
+    if (lastCompletionDate != null) {
+      final List<String> parts = lastCompletionDate.split('-');
+      if (parts.length == 3) {
+        final DateTime lastDate = DateTime(
+          int.parse(parts[0]),
+          int.parse(parts[1]),
+          int.parse(parts[2]),
+        );
+        final int difference = todayDate.difference(lastDate).inDays;
+        if (difference > 1) {
+          streak = 0;
+          await prefs.setInt('current_streak', 0);
+        }
+      }
+    } else {
+      // Safety: If no date exists but streak > 0, reset it (data corruption fix)
+      if (streak > 0) {
+        streak = 0;
         await prefs.setInt('current_streak', 0);
       }
+    }
 
-      // Reset checkmarks for the new day
+    // Check for "New Day" to reset task checkboxes
+    if (lastOpenDate != null && lastOpenDate != todayKey) {
       for (final t in _tasks) {
         t.isCompleted = false;
       }
       await _saveTasks();
     }
 
-    // Save "Today" as the last opened date
     await prefs.setString('last_open_date', todayKey);
 
     if (!mounted) return;
-    setState(() {});
+    setState(() {
+      _currentStreak = streak;
+    });
   }
 
   Future<void> _saveTasks() async {
