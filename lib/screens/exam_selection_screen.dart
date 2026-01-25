@@ -17,7 +17,7 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
 
   final TextEditingController _customExamController = TextEditingController();
   bool _isOtherSelected = false;
-  String? _customNameError; // Stores the error message
+  String? _customNameError;
 
   @override
   void initState() {
@@ -54,7 +54,26 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
     super.dispose();
   }
 
-  // --- VALIDATION LOGIC ---
+  // --- NEW HELPER: HUMAN READABLE DATE ---
+  // Converts "2026-05-10" to "10 May 2026"
+  String _formatDate(DateTime date) {
+    const List<String> months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
   void _validateCustomExamName(String value) {
     String trimmed = value.trim();
 
@@ -68,15 +87,12 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
       return;
     }
 
-    // Allow alphanumeric, spaces, dashes, and periods.
-    // Blocks emojis and special symbols that might break UI.
     final validCharacters = RegExp(r'^[a-zA-Z0-9 .-]+$');
     if (!validCharacters.hasMatch(trimmed)) {
       setState(() => _customNameError = "No special characters (@, #, etc.)");
       return;
     }
 
-    // Valid
     setState(() => _customNameError = null);
   }
 
@@ -87,6 +103,20 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
           _selectedDate ?? DateTime.now().add(const Duration(days: 90)),
       firstDate: DateTime.now(),
       lastDate: DateTime(2030),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).brightness == Brightness.dark
+                ? const ColorScheme.dark(
+                    primary: Colors.blue,
+                    onPrimary: Colors.white,
+                    surface: Color(0xFF1E1E1E),
+                    onSurface: Colors.white)
+                : const ColorScheme.light(primary: Colors.blue),
+          ),
+          child: child!,
+        );
+      },
     );
     if (picked != null && picked != _selectedDate) {
       setState(() {
@@ -100,7 +130,6 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
     if (_selectedExam == null) return false;
 
     if (_isOtherSelected) {
-      // Must be non-empty AND have no validation errors
       return _customExamController.text.trim().isNotEmpty &&
           _customNameError == null;
     }
@@ -109,7 +138,6 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
   }
 
   Future<void> _saveAndContinue() async {
-    // Final check before saving
     if (_isOtherSelected) {
       _validateCustomExamName(_customExamController.text);
       if (_customNameError != null) return;
@@ -133,6 +161,8 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Select Your Goal'), centerTitle: true),
       body: SingleChildScrollView(
@@ -161,6 +191,12 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                     value: _selectedExam,
                     hint: const Text('Choose an Exam'),
                     isExpanded: true,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontSize: 16,
+                    ),
+                    dropdownColor:
+                        isDark ? const Color(0xFF2C2C2C) : Colors.white,
                     items: _exams.map((String exam) {
                       return DropdownMenuItem<String>(
                         value: exam,
@@ -173,8 +209,7 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                         _isOtherSelected = newValue == 'Other';
                         if (!_isOtherSelected) {
                           _customExamController.clear();
-                          _customNameError =
-                              null; // Clear error if switching away
+                          _customNameError = null;
                         }
                       });
                     },
@@ -185,10 +220,12 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                 const SizedBox(height: 15),
                 TextField(
                   controller: _customExamController,
+                  style:
+                      TextStyle(color: isDark ? Colors.white : Colors.black87),
                   decoration: InputDecoration(
                     labelText: 'Enter Custom Exam Name',
                     hintText: 'e.g. CA Final, GATE 2026',
-                    errorText: _customNameError, // Shows error message here
+                    errorText: _customNameError,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -196,7 +233,7 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                         horizontal: 16, vertical: 16),
                   ),
                   onChanged: (value) {
-                    _validateCustomExamName(value); // Live validation
+                    _validateCustomExamName(value);
                   },
                 ),
               ],
@@ -206,21 +243,32 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               OutlinedButton.icon(
                 onPressed: _pickDate,
-                icon: const Icon(Icons.calendar_today, color: Colors.blue),
+                icon: Icon(Icons.calendar_today,
+                    color: Colors.blue.withOpacity(0.8), size: 22),
                 label: Text(
                   _selectedDate == null
                       ? 'Select Exam Date'
-                      : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
-                  style: const TextStyle(fontSize: 16, color: Colors.black87),
+                      : _formatDate(_selectedDate!), // USES NEW HELPER
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.grey[200] : Colors.black87,
+                    letterSpacing: 0.5,
+                  ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  side: const BorderSide(color: Colors.grey),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                  side: BorderSide(
+                    color: isDark ? Colors.grey[700]! : Colors.grey[400]!,
+                    width: 1,
+                  ),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(12)),
+                  alignment: Alignment.center,
                 ),
               ),
               const SizedBox(height: 40),
@@ -229,7 +277,8 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: Colors.blue,
-                  disabledBackgroundColor: Colors.grey.shade300,
+                  disabledBackgroundColor:
+                      isDark ? Colors.grey[800] : Colors.grey.shade300,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
