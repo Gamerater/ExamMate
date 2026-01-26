@@ -10,9 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  shared_preferences: ^2.3.2
   google_fonts: ^6.2.1
   cupertino_icons: ^1.0.6
-  shared_preferences: ^2.3.2
+  # Add these:
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.10.0
 
 dev_dependencies:
   flutter_test:

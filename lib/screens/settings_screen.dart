@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../main.dart'; // Import main.dart to access themeNotifier
+import '../main.dart';
 import '../utils/constants.dart';
+import '../services/notification_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,9 +16,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _currentDateDisplay = "";
   bool _isCustomExam = false;
 
-  // State for toggles
   bool _isDarkTheme = false;
   bool _showStreak = true;
+  bool _isReminderEnabled = false;
+
+  TimeOfDay _reminderTime = const TimeOfDay(hour: 20, minute: 0);
 
   @override
   void initState() {
@@ -40,24 +43,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _currentDateDisplay = "Not Set";
       }
 
-      // Load Dark Mode State
       _isDarkTheme = prefs.getBool('is_dark_mode') ?? false;
+      _showStreak = prefs.getBool('show_streak') ?? true;
+      _isReminderEnabled = prefs.getBool('daily_reminder') ?? false;
+
+      final int hour = prefs.getInt('reminder_hour') ?? 20;
+      final int minute = prefs.getInt('reminder_minute') ?? 0;
+      _reminderTime = TimeOfDay(hour: hour, minute: minute);
     });
   }
 
   Future<void> _toggleTheme(bool isDark) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_dark_mode', isDark);
-
-    setState(() {
-      _isDarkTheme = isDark;
-    });
-
-    // Update the Global App Theme immediately
+    setState(() => _isDarkTheme = isDark);
     ExamMateApp.themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
   }
 
-  // ... (Keep existing helpers: _pickNewDate, _showConfirmationDialog) ...
+  // --- SAFE TOGGLE LOGIC ---
+  Future<void> _toggleReminder(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    final notificationService = NotificationService();
+
+    if (value) {
+      // 1. Request Permission (POST_NOTIFICATIONS only)
+      bool granted = await notificationService.requestPermissions();
+
+      if (granted) {
+        // 2. Schedule (Safe Mode)
+        await notificationService.scheduleDailyReminder(
+            _reminderTime.hour, _reminderTime.minute);
+
+        await prefs.setBool('daily_reminder', true);
+        setState(() => _isReminderEnabled = true);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  "Reminder set for ${_reminderTime.format(context)} daily!"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        // 3. Denied
+        setState(() => _isReminderEnabled = false);
+        if (mounted) _showPermissionDeniedDialog();
+      }
+    } else {
+      // 4. Turn Off
+      await notificationService.cancelNotifications();
+      await prefs.setBool('daily_reminder', false);
+      setState(() => _isReminderEnabled = false);
+    }
+  }
+
+  Future<void> _pickReminderTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _reminderTime,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            timePickerTheme: TimePickerThemeData(
+              dialHandColor: Colors.deepOrange,
+              hourMinuteTextColor: WidgetStateColor.resolveWith((states) =>
+                  states.contains(WidgetState.selected)
+                      ? Colors.deepOrange
+                      : Colors.grey),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final prefs = await SharedPreferences.getInstance();
+
+      await prefs.setInt('reminder_hour', picked.hour);
+      await prefs.setInt('reminder_minute', picked.minute);
+
+      setState(() => _reminderTime = picked);
+
+      if (_isReminderEnabled) {
+        final service = NotificationService();
+        await service.cancelNotifications();
+        await service.scheduleDailyReminder(picked.hour, picked.minute);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Reminder rescheduled!")),
+          );
+        }
+      }
+    }
+  }
+
+  void _showPermissionDeniedDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Notifications Disabled"),
+        content: const Text(
+          "To receive study reminders, please enable notifications for ExamMate in your phone settings.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ... (Existing helper methods for Exam Date and Confirmation Dialog remain unchanged) ...
+  // Paste _pickNewDate, _showConfirmationDialog, build, _buildSectionHeader, etc. from previous file
+
   Future<void> _pickNewDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -110,7 +214,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Access current theme colors for dynamic UI
     final theme = Theme.of(context);
     final textColor = theme.textTheme.bodyLarge?.color;
     final iconColor = theme.iconTheme.color;
@@ -130,10 +233,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
         children: [
-          // --- SECTION 1 ---
           _buildSectionHeader(
               title: 'Exam Preferences',
-              description: 'Manage your target goal and timeline'),
+              description: 'Manage your target goal'),
           _buildSectionContainer(
             children: [
               _buildSettingsTile(
@@ -167,10 +269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 24),
-
-          // --- SECTION 2 ---
           _buildSectionHeader(
               title: 'App Preferences', description: 'Customize behavior'),
           _buildSectionContainer(
@@ -179,41 +278,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.notifications_active,
                 iconColor: Colors.purple,
                 title: 'Daily Reminders',
-                showComingSoon: true, // Still coming soon
                 trailing: Switch(
-                    value: false, onChanged: null, activeColor: Colors.blue),
+                  value: _isReminderEnabled,
+                  onChanged: _toggleReminder,
+                  activeColor: Colors.purple,
+                ),
               ),
+              if (_isReminderEnabled) ...[
+                Padding(
+                  padding:
+                      const EdgeInsets.only(left: 60, right: 16, bottom: 8),
+                  child: GestureDetector(
+                    onTap: _pickReminderTime,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 8, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: theme.scaffoldBackgroundColor,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text("Reminder Time",
+                              style: TextStyle(
+                                  fontSize: 14, color: Colors.grey[600])),
+                          Row(
+                            children: [
+                              Text(_reminderTime.format(context),
+                                  style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor)),
+                              const SizedBox(width: 8),
+                              Icon(Icons.edit, size: 14, color: Colors.purple),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               _buildDivider(),
               _buildSettingsTile(
                 icon: Icons.local_fire_department,
                 iconColor: Colors.deepOrange,
                 title: 'Show Streak',
-                showComingSoon: true, // Still coming soon
+                showComingSoon: true,
                 trailing: Switch(
                     value: _showStreak,
                     onChanged: (val) => setState(() => _showStreak = val),
                     activeColor: Colors.deepOrange),
               ),
               _buildDivider(),
-
-              // --- DARK MODE (ACTIVE) ---
               _buildSettingsTile(
                 icon: Icons.dark_mode,
                 iconColor: Colors.indigo,
                 title: 'Dark Mode',
-                showComingSoon: false, // REMOVED BADGE
                 trailing: Switch(
                   value: _isDarkTheme,
-                  onChanged: _toggleTheme, // CONNECTED LOGIC
+                  onChanged: _toggleTheme,
                   activeColor: Colors.indigo,
                 ),
               ),
             ],
           ),
-
           const SizedBox(height: 24),
-
-          // --- SECTION 3 ---
           _buildSectionHeader(
               title: 'About', description: 'App info and legal'),
           _buildSectionContainer(
@@ -232,13 +364,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: Icons.privacy_tip,
                 iconColor: Colors.grey,
                 title: 'Privacy Policy',
-                onTap: () {
-                  Navigator.pushNamed(context, '/privacy');
-                },
+                onTap: () => Navigator.pushNamed(context, '/privacy'),
               ),
             ],
           ),
-
           const SizedBox(height: 40),
           const Center(
               child: Text('Made with ❤️ for Students',
@@ -249,7 +378,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // --- UI HELPER METHODS ---
   Widget _buildSectionHeader({required String title, String? description}) {
     return Padding(
       padding: const EdgeInsets.only(left: 8, bottom: 10),
@@ -279,7 +407,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: theme.cardColor, // Dynamic Background
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -327,17 +455,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (showComingSoon) ...[
             const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.orange.shade100)),
-              child: const Text('SOON',
-                  style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange)),
-            ),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.orange.shade100)),
+                child: const Text('SOON',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.orange)))
           ],
         ],
       ),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Import for Status Bar control
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+// Screens
 import 'screens/splash_screen.dart';
 import 'screens/exam_selection_screen.dart';
 import 'screens/home_screen.dart';
@@ -9,11 +11,16 @@ import 'screens/task_screen.dart';
 import 'screens/progress_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/privacy_policy_screen.dart';
-// Import the new screen
 import 'screens/intro_screen.dart';
+
+// Services
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // FIX: Initialize Notifications before app starts
+  await NotificationService().init();
 
   final prefs = await SharedPreferences.getInstance();
   final bool isDark = prefs.getBool('is_dark_mode') ?? false;
@@ -24,6 +31,7 @@ void main() async {
 class ExamMateApp extends StatelessWidget {
   final bool initialIsDark;
 
+  // Global Theme Notifier for Settings Screen
   static late ValueNotifier<ThemeMode> themeNotifier;
 
   ExamMateApp({super.key, required this.initialIsDark}) {
@@ -58,7 +66,6 @@ class ExamMateApp extends StatelessWidget {
                   color: Colors.black87,
                   fontSize: 20,
                   fontWeight: FontWeight.bold),
-              // FIX: Force Status Bar icons to be DARK (visible on light background)
               systemOverlayStyle: SystemUiOverlayStyle.dark,
             ),
           ),
@@ -67,14 +74,10 @@ class ExamMateApp extends StatelessWidget {
           darkTheme: ThemeData(
             brightness: Brightness.dark,
             primarySwatch: Colors.blue,
-
-            // "Calm Slate" Palette
             scaffoldBackgroundColor: const Color(0xFF121212),
             cardColor: const Color(0xFF1E1E1E),
-
             useMaterial3: true,
             textTheme: GoogleFonts.poppinsTextTheme(ThemeData.dark().textTheme),
-
             appBarTheme: const AppBarTheme(
               backgroundColor: Colors.transparent,
               elevation: 0,
@@ -83,13 +86,9 @@ class ExamMateApp extends StatelessWidget {
                   color: Color(0xFFE0E0E0),
                   fontSize: 20,
                   fontWeight: FontWeight.bold),
-              // FIX: Force Status Bar icons to be LIGHT (visible on dark background)
               systemOverlayStyle: SystemUiOverlayStyle.light,
             ),
-
             dividerColor: Colors.grey[800],
-
-            // Fix Input Fields (e.g., Custom Exam Name)
             inputDecorationTheme: InputDecorationTheme(
               filled: true,
               fillColor: const Color(0xFF2C2C2C),
@@ -99,19 +98,15 @@ class ExamMateApp extends StatelessWidget {
               ),
               hintStyle: TextStyle(color: Colors.grey[600]),
             ),
-
-            // FIX: Use dialogTheme instead of dialogBackgroundColor
             dialogTheme: const DialogThemeData(
               backgroundColor: Color(0xFF1E1E1E),
             ),
           ),
 
-          initialRoute: '/intro', // Change from '/splash' to '/intro'
+          // FIX: Updated Entry Point and Routes
+          initialRoute: '/intro',
           routes: {
-            // Add the new route
             '/intro': (context) => const IntroScreen(),
-
-            // Keep existing routes
             '/splash': (context) => const SplashScreen(),
             '/home': (context) => const HomeScreen(),
             '/exam': (context) => const ExamSelectionScreen(),

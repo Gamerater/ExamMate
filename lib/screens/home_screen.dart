@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/constants.dart';
+import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -12,14 +13,46 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String _examName = "Loading...";
   int _daysLeft = 0;
-  int _rawDifference = 0; // Tracks raw day difference (can be negative)
+  int _rawDifference = 0;
   bool _isCustomExam = false;
+
+  // NEW: State for Streak and Greeting
+  int _streak = 0;
+  String _greeting = "Hello";
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadExamData();
+    _updateGreeting(); // Set initial greeting
+    _loadData(); // Load all data (Exam + Streak)
+    _refreshNotification(); // Ensure notifications are sync'd
+  }
+
+  /// Updates greeting based on hour of day
+  void _updateGreeting() {
+    final hour = DateTime.now().hour;
+    setState(() {
+      if (hour < 12) {
+        _greeting = "Good Morning";
+      } else if (hour < 17) {
+        _greeting = "Good Afternoon";
+      } else {
+        _greeting = "Good Evening";
+      }
+    });
+  }
+
+  /// Checks if reminders are enabled and updates the message/time
+  Future<void> _refreshNotification() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool isEnabled = prefs.getBool('daily_reminder') ?? false;
+
+    if (isEnabled) {
+      final int hour = prefs.getInt('reminder_hour') ?? 20;
+      final int minute = prefs.getInt('reminder_minute') ?? 0;
+      await NotificationService().scheduleDailyReminder(hour, minute);
+    }
   }
 
   @override
@@ -31,12 +64,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _loadExamData();
+      _loadData();
+      _updateGreeting();
     }
   }
 
-  Future<void> _loadExamData() async {
+  Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // 1. Load Streak
+    final int streak = prefs.getInt('current_streak') ?? 0;
+
+    // 2. Load Exam Data
     final savedExam = prefs.getString('selected_exam') ?? "General Exam";
     final String? savedDateString = prefs.getString('exam_date');
 
@@ -55,15 +94,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     if (mounted) {
       setState(() {
+        _streak = streak; // Update Streak UI
         _examName = savedExam;
-        // FIX: Handle Past Dates (avoid showing 0/negative as "Days Left")
+
         if (difference < 0) {
-          _daysLeft = 0; // Clamp UI counter to 0
+          _daysLeft = 0;
         } else {
           _daysLeft = difference;
         }
 
-        _rawDifference = difference; // Store raw value for logic checks
+        _rawDifference = difference;
         _isCustomExam = !AppConstants.availableExams.contains(savedExam);
       });
     }
@@ -71,13 +111,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // Access current theme colors
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.textTheme.bodyLarge?.color;
 
     return Scaffold(
-      // 1. Use Theme Background
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(
@@ -86,12 +124,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
         centerTitle: true,
         automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         actions: [
           IconButton(
             icon: Icon(Icons.settings, color: textColor),
             onPressed: () {
               Navigator.pushNamed(context, '/settings').then((_) {
-                _loadExamData();
+                _loadData(); // Reload when returning from settings
               });
             },
           ),
@@ -103,87 +143,131 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // NEW: Greeting Text
+              Text(
+                "$_greeting, Student.",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // --- MAIN DASHBOARD CARD ---
               Container(
                 decoration: BoxDecoration(
-                  // 2. Use Theme Card Color
+                  // NEW: Subtle Gradient for premium look
+                  gradient: LinearGradient(
+                    colors: isDark
+                        ? [const Color(0xFF1E1E1E), const Color(0xFF252525)]
+                        : [Colors.white, Colors.grey.shade50],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   color: theme.cardColor,
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blue.withOpacity(0.1),
+                      color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
                   ],
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 32.0, horizontal: 20.0),
+                  padding: const EdgeInsets.all(24.0),
                   child: Column(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          // 3. Dynamic Accent Color (Opacity works on both modes)
-                          color: Colors.blue.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _examName.toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.blue,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                                fontSize: 14,
-                              ),
+                      // TOP ROW: Exam Name vs Streak
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Exam Tag
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
                             ),
-                            if (_isCustomExam) ...[
-                              const SizedBox(width: 6),
-                              const Icon(Icons.edit,
-                                  size: 14, color: Colors.blue),
+                            child: Row(
+                              children: [
+                                Text(
+                                  _examName.toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.blue,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                    letterSpacing: 1.0,
+                                  ),
+                                ),
+                                if (_isCustomExam) ...[
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.edit,
+                                      size: 12, color: Colors.blue),
+                                ],
+                              ],
+                            ),
+                          ),
+
+                          // Streak Counter (NEW)
+                          Row(
+                            children: [
+                              Icon(Icons.local_fire_department,
+                                  size: 20,
+                                  color: _streak > 0
+                                      ? Colors.deepOrange
+                                      : Colors.grey[400]),
+                              const SizedBox(width: 4),
+                              Text(
+                                "$_streak Day Streak",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: _streak > 0
+                                      ? Colors.deepOrange
+                                      : Colors.grey,
+                                ),
+                              ),
                             ],
-                          ],
+                          )
+                        ],
+                      ),
+
+                      const SizedBox(height: 30),
+
+                      // CENTER: Countdown
+                      Text(
+                        _rawDifference < 0 ? "Done" : '$_daysLeft',
+                        style: TextStyle(
+                          fontSize: _rawDifference < 0 ? 48 : 72,
+                          fontWeight: FontWeight.w900,
+                          color: textColor,
+                          height: 1.0,
+                          letterSpacing: -2.0,
                         ),
                       ),
-                      const SizedBox(height: 24),
-                      RichText(
-                        textAlign: TextAlign.center,
-                        text: TextSpan(
-                          children: [
-                            TextSpan(
-                              // Display "Done" if date is past
-                              text: _rawDifference < 0 ? "Done" : '$_daysLeft',
-                              style: TextStyle(
-                                fontSize: _rawDifference < 0 ? 48 : 64,
-                                fontWeight: FontWeight.w900,
-                                // 4. Dynamic Text Color
-                                color: textColor,
-                                height: 1.0,
-                              ),
-                            ),
-                            TextSpan(
-                              text: _rawDifference < 0
-                                  ? '\nGoal Completed'
-                                  : '\nDays Left',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey,
-                                fontWeight: FontWeight.w500,
-                                height: 1.5,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        _rawDifference < 0
+                            ? 'Goal Completed'
+                            : 'Days Remaining',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey[500],
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.5,
                         ),
                       ),
+                      const SizedBox(height: 30),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 40),
+
+              const SizedBox(height: 32),
+
+              // --- QUICK ACTIONS ---
               Padding(
                 padding: const EdgeInsets.only(left: 8.0),
                 child: Text(
@@ -191,15 +275,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: isDark
-                        ? Colors.grey[300]
-                        : Colors.grey[800], // Adjust for dark mode
+                    color: isDark ? Colors.grey[300] : Colors.grey[800],
                   ),
                 ),
               ),
               const SizedBox(height: 16),
+
               _BouncingButton(
-                onTap: () => Navigator.pushNamed(context, '/tasks'),
+                onTap: () => Navigator.pushNamed(context, '/tasks')
+                    .then((_) => _loadData()),
                 child: _buildModernButtonContent(
                   context,
                   icon: Icons.check_circle_outline,
@@ -209,7 +293,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
               _BouncingButton(
-                onTap: () => Navigator.pushNamed(context, '/progress'),
+                onTap: () => Navigator.pushNamed(context, '/progress')
+                    .then((_) => _loadData()),
                 child: _buildModernButtonContent(
                   context,
                   icon: Icons.bar_chart,
@@ -231,41 +316,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required Color iconColor,
   }) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       decoration: BoxDecoration(
-        color: theme.cardColor, // Dynamic Background
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
+        border: isDark ? Border.all(color: Colors.white10) : null,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 20.0),
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
+                color: iconColor.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(icon, color: iconColor, size: 28),
+              child: Icon(icon, color: iconColor, size: 26),
             ),
             const SizedBox(width: 20),
             Text(
               label,
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: theme.textTheme.bodyLarge?.color, // Dynamic Text
+                color: theme.textTheme.bodyLarge?.color,
               ),
             ),
             const Spacer(),
-            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[300]),
+            Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey[400]),
           ],
         ),
       ),
@@ -273,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
-// Bouncing Button remains exactly the same...
+// Button Animation Class (Unchanged)
 class _BouncingButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
