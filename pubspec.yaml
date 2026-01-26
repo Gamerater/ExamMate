@@ -19,6 +19,8 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
+  # Add this line:
+  flutter_native_splash: ^2.3.1
 
 # Configuration for App Icons
 flutter_launcher_icons:
@@ -26,6 +28,18 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/icon/icon.png"
   min_sdk_android: 21
+
+# Configuration for Native Splash Screen
+flutter_native_splash:
+  color: "#121212"        # Keep your dark background color
+
+  # image: "assets/icon/splash.png"  <-- COMMENT THIS OUT
+
+  # Comment out the Android 12 section too
+
+  # android_12:
+  #   image: "assets/icon/splash.png"
+  #   color: "#121212"
 
 flutter:
   uses-material-design: true

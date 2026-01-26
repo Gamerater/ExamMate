@@ -9,6 +9,8 @@ import 'screens/task_screen.dart';
 import 'screens/progress_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/privacy_policy_screen.dart';
+// Import the new screen
+import 'screens/intro_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -104,8 +106,12 @@ class ExamMateApp extends StatelessWidget {
             ),
           ),
 
-          initialRoute: '/splash',
+          initialRoute: '/intro', // Change from '/splash' to '/intro'
           routes: {
+            // Add the new route
+            '/intro': (context) => const IntroScreen(),
+
+            // Keep existing routes
             '/splash': (context) => const SplashScreen(),
             '/home': (context) => const HomeScreen(),
             '/exam': (context) => const ExamSelectionScreen(),
