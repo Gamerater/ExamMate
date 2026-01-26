@@ -14,6 +14,11 @@
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.android.gms.**
 
+# Flutter Local Notifications
+-keep class com.dexterous.flutterlocalnotifications.** { *; }
+-keep class com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver
+-keep class com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver
+
 # Fix for R8 Missing Class Errors (Google Play Core)
 -dontwarn com.google.android.play.core.**
 -dontwarn io.flutter.embedding.engine.deferredcomponents.*

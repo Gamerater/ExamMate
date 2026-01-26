@@ -17,21 +17,27 @@ import 'screens/intro_screen.dart';
 import 'services/notification_service.dart';
 
 void main() async {
+  // 1. Critical: Must be first
   WidgetsFlutterBinding.ensureInitialized();
 
-  // FIX: Initialize Notifications before app starts
-  await NotificationService().init();
-
+  // 2. Load Theme Preference (Safe)
   final prefs = await SharedPreferences.getInstance();
   final bool isDark = prefs.getBool('is_dark_mode') ?? false;
 
+  // 3. Try to Initialize Notifications (Defensive)
+  // In release mode, if this fails, we catch the error so the app doesn't freeze.
+  try {
+    await NotificationService().init();
+  } catch (e) {
+    debugPrint("Failed to initialize notifications: $e");
+  }
+
+  // 4. Launch App (Always runs)
   runApp(ExamMateApp(initialIsDark: isDark));
 }
 
 class ExamMateApp extends StatelessWidget {
   final bool initialIsDark;
-
-  // Global Theme Notifier for Settings Screen
   static late ValueNotifier<ThemeMode> themeNotifier;
 
   ExamMateApp({super.key, required this.initialIsDark}) {
@@ -103,7 +109,6 @@ class ExamMateApp extends StatelessWidget {
             ),
           ),
 
-          // FIX: Updated Entry Point and Routes
           initialRoute: '/intro',
           routes: {
             '/intro': (context) => const IntroScreen(),

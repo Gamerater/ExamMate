@@ -24,9 +24,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _updateGreeting(); // Set initial greeting
-    _loadData(); // Load all data (Exam + Streak)
-    _refreshNotification(); // Ensure notifications are sync'd
+
+    // UI Setup
+    _updateGreeting();
+    _loadData();
+
+    // FIX: Delay notification logic until AFTER the UI is visible.
+    // This prevents startup lag/crashes.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshNotification();
+    });
   }
 
   /// Updates greeting based on hour of day
