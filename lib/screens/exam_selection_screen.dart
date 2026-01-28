@@ -26,25 +26,33 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
   }
 
   Future<void> _loadExistingData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? storedExam = prefs.getString('selected_exam');
-    final String? storedDate = prefs.getString('exam_date');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? storedExam = prefs.getString('selected_exam');
+      final String? storedDate = prefs.getString('exam_date');
 
-    if (storedExam != null && storedDate != null) {
-      if (mounted) {
-        setState(() {
-          _selectedDate = DateTime.parse(storedDate);
+      if (storedExam != null && storedDate != null) {
+        // FIX: Use tryParse to prevent crash if data is corrupted
+        final parsedDate = DateTime.tryParse(storedDate);
 
-          if (_exams.contains(storedExam)) {
-            _selectedExam = storedExam;
-            _isOtherSelected = false;
-          } else {
-            _selectedExam = 'Other';
-            _isOtherSelected = true;
-            _customExamController.text = storedExam;
-          }
-        });
+        if (mounted && parsedDate != null) {
+          setState(() {
+            _selectedDate = parsedDate;
+
+            if (_exams.contains(storedExam)) {
+              _selectedExam = storedExam;
+              _isOtherSelected = false;
+            } else {
+              _selectedExam = 'Other';
+              _isOtherSelected = true;
+              _customExamController.text = storedExam;
+            }
+          });
+        }
       }
+    } catch (e) {
+      // Safely ignore storage errors - app will just show empty state
+      debugPrint("Error loading existing data: $e");
     }
   }
 
@@ -97,12 +105,34 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
   }
 
   Future<void> _pickDate() async {
+    final now = DateTime.now();
+    // FIX: Strip time to ensure clean comparisons and UI behavior
+    final firstDate = DateTime(now.year, now.month, now.day);
+
+    // FIX: Ensure lastDate is valid relative to firstDate
+    // If we pass 2030, this dynamic check prevents a crash.
+    DateTime lastDate = DateTime(2030);
+    if (lastDate.isBefore(firstDate)) {
+      lastDate = firstDate.add(const Duration(days: 365 * 5));
+    }
+
+    // FIX: Calculate initialDate carefully to avoid "initialDate must be on or after firstDate" crash
+    // If saved date is in the past, reset picker to today.
+    DateTime initialDate =
+        _selectedDate ?? firstDate.add(const Duration(days: 90));
+
+    if (initialDate.isBefore(firstDate)) {
+      initialDate = firstDate;
+    }
+    if (initialDate.isAfter(lastDate)) {
+      initialDate = lastDate;
+    }
+
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate:
-          _selectedDate ?? DateTime.now().add(const Duration(days: 90)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime(2030),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -138,24 +168,36 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
   }
 
   Future<void> _saveAndContinue() async {
+    // Defensive check
+    if (_selectedExam == null) return;
+
     if (_isOtherSelected) {
       _validateCustomExamName(_customExamController.text);
       if (_customNameError != null) return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    String finalExamName = _selectedExam!;
+      String finalExamName = _selectedExam!;
 
-    if (_isOtherSelected) {
-      finalExamName = _customExamController.text.trim();
-    }
+      if (_isOtherSelected) {
+        finalExamName = _customExamController.text.trim();
+      }
 
-    await prefs.setString('selected_exam', finalExamName);
-    await prefs.setString('exam_date', _selectedDate!.toIso8601String());
+      await prefs.setString('selected_exam', finalExamName);
 
-    if (mounted) {
-      Navigator.pushReplacementNamed(context, '/home');
+      // _selectedDate is checked in _isFormValid, but purely safe coding:
+      if (_selectedDate != null) {
+        await prefs.setString('exam_date', _selectedDate!.toIso8601String());
+      }
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } catch (e) {
+      // Log error or show snackbar if needed
+      debugPrint("Error saving data: $e");
     }
   }
 
