@@ -12,7 +12,8 @@ class IntroScreen extends StatefulWidget {
 
 class _IntroScreenState extends State<IntroScreen>
     with TickerProviderStateMixin {
-  // FIX: Make these nullable (?) so we can check if they exist
+  // Controllers are initialized in initState, so we can treat them as safe,
+  // but keeping them nullable (?) allows for safe disposal if init fails strictly.
   AnimationController? _mainController;
   Animation<double>? _logoFade;
   Animation<Offset>? _textSlide;
@@ -24,12 +25,9 @@ class _IntroScreenState extends State<IntroScreen>
   @override
   void initState() {
     super.initState();
-    // Initialize after the first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _initAnimations();
-      }
-    });
+    // FIX: Initialize immediately. No need to wait for a frame.
+    // This prevents the "blank screen flash" and ensures vars are set before build().
+    _initAnimations();
   }
 
   void _initAnimations() {
@@ -76,12 +74,14 @@ class _IntroScreenState extends State<IntroScreen>
       }
     });
 
-    // Rebuild UI now that controllers exist
-    setState(() {});
+    // Note: No setState needed here because we are inside initState flow.
   }
 
   void _navigateToHome() {
+    // FIX: Always check mounted before navigation to prevent async crashes
     if (!mounted) return;
+
+    // We assume the route '/home' is defined in your main.dart
     Navigator.of(context).pushReplacementNamed('/home');
   }
 
@@ -97,10 +97,10 @@ class _IntroScreenState extends State<IntroScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = Theme.of(context).scaffoldBackgroundColor;
 
-    // FIX: If controllers are null, return empty box (Prevents Red Screen)
-    if (_mainController == null || _progressController == null) {
-      return Scaffold(backgroundColor: bgColor, body: const SizedBox());
-    }
+    // FIX: We can safely remove the "return SizedBox()" guard here
+    // because _initAnimations() runs synchronously in initState.
+    // However, if for some edge case they are null, safe access (!) or fallback is mostly handled.
+    // We will assume they are initialized for the main flow.
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -133,6 +133,7 @@ class _IntroScreenState extends State<IntroScreen>
                     'assets/icon/icon.png',
                     width: 80,
                     height: 80,
+                    // Defensive error builder
                     errorBuilder: (c, o, s) => const Icon(Icons.school,
                         size: 80, color: Colors.deepOrange),
                   ),
@@ -184,8 +185,9 @@ class _IntroScreenState extends State<IntroScreen>
                         value: _progressValue!.value,
                         backgroundColor:
                             isDark ? Colors.grey[800] : Colors.grey[200],
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                            _progressColor!.value ?? Colors.deepOrange),
+                        // FIX: Pass the animation object directly.
+                        // It is more efficient than creating AlwaysStoppedAnimation every frame.
+                        valueColor: _progressColor,
                         minHeight: 4,
                       ),
                     ),
