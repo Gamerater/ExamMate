@@ -33,18 +33,22 @@ class Task {
   // Convert from Map (Loading)
   factory Task.fromMap(Map<String, dynamic> map) {
     return Task(
-      title: map['title'],
-      isCompleted: map['isCompleted'] ?? false,
+      // FIX 1: Defensive coding for title.
+      // Prevents crash if 'title' is null or missing in JSON.
+      title: map['title']?.toString() ?? 'Untitled Task',
+
+      // FIX 2: Safer boolean check.
+      // Handles nulls and type mismatches (like 0/1 from SQLite) gracefully.
+      isCompleted: map['isCompleted'] == true,
 
       // --- MIGRATION LOGIC ---
-      // If 'priority' doesn't exist (old task), use 'Medium'
-      priority: map['priority'] ?? 'Medium',
+      // FIX 3: Added toString() to string fields to prevent type casting errors.
+      priority: map['priority']?.toString() ?? 'Medium',
+      label: map['label']?.toString() ?? 'General',
 
-      // If 'label' doesn't exist, use 'General'
-      label: map['label'] ?? 'General',
-
-      // If 'colorValue' doesn't exist, use Blue (0xFF2196F3)
-      colorValue: map['colorValue'] ?? 0xFF2196F3,
+      // FIX 4: Type check for integer.
+      // If data is corrupted (e.g. String instead of int), fallback to default color rather than crash.
+      colorValue: (map['colorValue'] is int) ? map['colorValue'] : 0xFF2196F3,
     );
   }
 }
