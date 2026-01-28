@@ -32,33 +32,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // FIX: Delay notification logic until AFTER the UI is visible.
     // This prevents startup lag/crashes.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _refreshNotification();
+      if (mounted) {
+        _refreshNotification();
+      }
     });
   }
 
   /// Updates greeting based on hour of day
   void _updateGreeting() {
     final hour = DateTime.now().hour;
-    setState(() {
-      if (hour < 12) {
-        _greeting = "Good Morning";
-      } else if (hour < 17) {
-        _greeting = "Good Afternoon";
-      } else {
-        _greeting = "Good Evening";
-      }
-    });
+    // Simple sync logic doesn't need try-catch, but setState must be safe
+    if (mounted) {
+      setState(() {
+        if (hour < 12) {
+          _greeting = "Good Morning";
+        } else if (hour < 17) {
+          _greeting = "Good Afternoon";
+        } else {
+          _greeting = "Good Evening";
+        }
+      });
+    }
   }
 
   /// Checks if reminders are enabled and updates the message/time
   Future<void> _refreshNotification() async {
-    final prefs = await SharedPreferences.getInstance();
-    final bool isEnabled = prefs.getBool('daily_reminder') ?? false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bool isEnabled = prefs.getBool('daily_reminder') ?? false;
 
-    if (isEnabled) {
-      final int hour = prefs.getInt('reminder_hour') ?? 20;
-      final int minute = prefs.getInt('reminder_minute') ?? 0;
-      await NotificationService().scheduleDailyReminder(hour, minute);
+      if (isEnabled) {
+        final int hour = prefs.getInt('reminder_hour') ?? 20;
+        final int minute = prefs.getInt('reminder_minute') ?? 0;
+        // FIX: Catch errors if notification service fails (permissions, etc)
+        await NotificationService().scheduleDailyReminder(hour, minute);
+      }
+    } catch (e) {
+      debugPrint("Error refreshing notifications: $e");
     }
   }
 
@@ -77,42 +87,51 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadData() async {
-    final prefs = await SharedPreferences.getInstance();
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    // 1. Load Streak
-    final int streak = prefs.getInt('current_streak') ?? 0;
+      // 1. Load Streak
+      final int streak = prefs.getInt('current_streak') ?? 0;
 
-    // 2. Load Exam Data
-    final savedExam = prefs.getString('selected_exam') ?? "General Exam";
-    final String? savedDateString = prefs.getString('exam_date');
+      // 2. Load Exam Data
+      final savedExam = prefs.getString('selected_exam') ?? "General Exam";
+      final String? savedDateString = prefs.getString('exam_date');
 
-    DateTime targetDate;
-    if (savedDateString != null) {
-      targetDate = DateTime.parse(savedDateString);
-    } else {
-      targetDate = AppConstants.examDates[savedExam] ?? DateTime(2026, 5, 20);
-    }
+      // FIX: Use tryParse instead of parse to prevent crashes on corrupted data
+      DateTime? parsedDate;
+      if (savedDateString != null) {
+        parsedDate = DateTime.tryParse(savedDateString);
+      }
 
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final targetStart =
-        DateTime(targetDate.year, targetDate.month, targetDate.day);
-    final difference = targetStart.difference(todayStart).inDays;
+      // Fallback logic if parsing failed or date wasn't found
+      final DateTime defaultDate = DateTime(2026, 5, 20);
+      final DateTime targetDate =
+          parsedDate ?? AppConstants.examDates[savedExam] ?? defaultDate;
 
-    if (mounted) {
-      setState(() {
-        _streak = streak; // Update Streak UI
-        _examName = savedExam;
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+      final targetStart =
+          DateTime(targetDate.year, targetDate.month, targetDate.day);
+      final difference = targetStart.difference(todayStart).inDays;
 
-        if (difference < 0) {
-          _daysLeft = 0;
-        } else {
-          _daysLeft = difference;
-        }
+      if (mounted) {
+        setState(() {
+          _streak = streak; // Update Streak UI
+          _examName = savedExam;
 
-        _rawDifference = difference;
-        _isCustomExam = !AppConstants.availableExams.contains(savedExam);
-      });
+          if (difference < 0) {
+            _daysLeft = 0;
+          } else {
+            _daysLeft = difference;
+          }
+
+          _rawDifference = difference;
+          _isCustomExam = !AppConstants.availableExams.contains(savedExam);
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading dashboard data: $e");
+      // Optional: Set error state variables here if needed
     }
   }
 
@@ -399,12 +418,16 @@ class _BouncingButtonState extends State<_BouncingButton>
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
+      onTapDown: (_) {
+        if (mounted) _controller.forward();
+      },
       onTapUp: (_) {
-        _controller.reverse();
+        if (mounted) _controller.reverse();
         widget.onTap();
       },
-      onTapCancel: () => _controller.reverse(),
+      onTapCancel: () {
+        if (mounted) _controller.reverse();
+      },
       child: ScaleTransition(scale: _scaleAnimation, child: widget.child),
     );
   }
