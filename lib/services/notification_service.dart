@@ -70,30 +70,59 @@ class NotificationService {
     return false;
   }
 
+  /// Calculates the next instance of a time, adjusting for the device's TimeZone
+  tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
+    // 1. Get Current Local Time (Standard Dart DateTime handles local timezone automatically)
+    final DateTime nowLocal = DateTime.now();
+
+    // 2. Create Target Local Time for Today
+    DateTime scheduledLocal = DateTime(
+      nowLocal.year,
+      nowLocal.month,
+      nowLocal.day,
+      hour,
+      minute,
+    );
+
+    // 3. If that time has passed today, move to tomorrow
+    if (scheduledLocal.isBefore(nowLocal)) {
+      scheduledLocal = scheduledLocal.add(const Duration(days: 1));
+    }
+
+    // 4. Convert the correct Local time to UTC for the Notification Plugin
+    // This bypasses the need for the 'flutter_timezone' package.
+    final tz.TZDateTime scheduledUTC =
+        tz.TZDateTime.from(scheduledLocal.toUtc(), tz.UTC);
+
+    debugPrint("Scheduling Notification for Local: $scheduledLocal");
+    debugPrint("Converted to UTC: $scheduledUTC");
+
+    return scheduledUTC;
+  }
+
   Future<void> scheduleDailyReminder(int hour, int minute) async {
     try {
-      final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-      tz.TZDateTime scheduledDate =
-          tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
-
-      if (scheduledDate.isBefore(now)) {
-        scheduledDate = scheduledDate.add(const Duration(days: 1));
-      }
-
-      // Safe generation call (now handled internally)
+      // Use the new TimeZone-safe calculation
+      final tz.TZDateTime scheduledDate = _nextInstanceOfTime(hour, minute);
       final String smartBody = await _generateMotivationalMessage();
 
+      // FIX: Changed Channel ID to 'v2' to force a fresh channel creation
+      // This resets any "Silent" or "Blocked" settings from previous attempts.
       const AndroidNotificationDetails androidDetails =
           AndroidNotificationDetails(
-        'daily_reminder_channel',
+        'daily_reminder_channel_v2', // CHANGED ID
         'Daily Study Reminder',
         channelDescription: 'Reminds you to study every day',
         importance: Importance.max,
         priority: Priority.high,
+        ticker: 'Time to study!',
       );
 
       const NotificationDetails platformDetails =
           NotificationDetails(android: androidDetails);
+
+      // Cancel old ID 0 before scheduling new one
+      await flutterLocalNotificationsPlugin.cancel(0);
 
       await flutterLocalNotificationsPlugin.zonedSchedule(
         0,
@@ -106,6 +135,8 @@ class NotificationService {
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.time,
       );
+
+      debugPrint("✅ Notification Scheduled Successfully!");
     } catch (e) {
       debugPrint("Error scheduling notification: $e");
     }
@@ -123,9 +154,7 @@ class NotificationService {
         try {
           final Map<String, dynamic> taskMap = jsonDecode(t);
           if (taskMap['isCompleted'] == false) pendingCount++;
-        } catch (e) {
-          // Ignore individual task parse errors
-        }
+        } catch (e) {}
       }
 
       int daysLeft = 999;
@@ -133,10 +162,7 @@ class NotificationService {
         try {
           final examDate = DateTime.parse(examDateStr);
           daysLeft = examDate.difference(DateTime.now()).inDays;
-        } catch (e) {
-          debugPrint("Error parsing exam date: $e");
-          // Proceed with default daysLeft
-        }
+        } catch (e) {}
       }
 
       if (daysLeft > 0 && daysLeft <= 60) {
@@ -149,15 +175,15 @@ class NotificationService {
         return "You have $pendingCount topics waiting. Knock one out tonight?";
       }
     } catch (e) {
-      debugPrint("Error generating motivational message: $e");
+      debugPrint("Message gen error: $e");
     }
-    // Fallback message ensures we never crash the scheduler
     return "Consistency beats intensity. Time for a quick session.";
   }
 
   Future<void> cancelNotifications() async {
     try {
       await flutterLocalNotificationsPlugin.cancelAll();
+      debugPrint("All notifications cancelled");
     } catch (e) {
       debugPrint("Error cancelling notifications: $e");
     }
