@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
-// 1. Import the new quotes file
 import '../utils/motivation_quotes.dart';
 
 class ProgressScreen extends StatefulWidget {
@@ -19,7 +18,6 @@ class _ProgressScreenState extends State<ProgressScreen>
   int _totalCount = 0;
   bool _isLoading = true;
 
-  // 2. Variable to store the daily quote
   String _dailyQuote = "Loading motivation...";
 
   late AnimationController _controller;
@@ -30,13 +28,11 @@ class _ProgressScreenState extends State<ProgressScreen>
   void initState() {
     super.initState();
 
-    // FIX 2: Initialize Quote Synchronously (No "Loading..." flash)
-    // We fetch a quote immediately. It will update correctly if streak changes later.
+    // Initialize Quote Synchronously
     _dailyQuote = MotivationQuotes.getQuote(0);
 
     _controller = AnimationController(
       vsync: this,
-      // FIX 3: Dynamic Animation Setup (default duration; updated on load)
       duration: const Duration(milliseconds: 1000),
     );
     _animation = Tween<double>(begin: 0.0, end: 0.0).animate(
@@ -57,16 +53,23 @@ class _ProgressScreenState extends State<ProgressScreen>
     final String? tasksString = prefs.getString('tasks_data');
     List<Task> tasks = [];
 
+    // FIX 1: Safe JSON Decoding
     if (tasksString != null) {
-      final List<dynamic> decodedList = jsonDecode(tasksString);
-      tasks = decodedList.map((item) => Task.fromMap(item)).toList();
+      try {
+        final List<dynamic> decodedList = jsonDecode(tasksString);
+        tasks = decodedList.map((item) => Task.fromMap(item)).toList();
+      } catch (e) {
+        debugPrint("Error parsing tasks JSON: $e");
+        // Fallback to empty list to prevent crash
+        tasks = [];
+      }
     }
 
     int total = tasks.length;
     int completed = tasks.where((t) => t.isCompleted).length;
     double newProgress = total == 0 ? 0.0 : (completed / total);
 
-    // 3. Get the quote based on the loaded streak
+    // Get the quote based on the loaded streak
     final String quote = MotivationQuotes.getQuote(streak);
 
     if (mounted) {
@@ -75,12 +78,13 @@ class _ProgressScreenState extends State<ProgressScreen>
         _totalCount = total;
         _completedCount = completed;
         _targetProgress = newProgress;
-        _dailyQuote = quote; // Store it
+        _dailyQuote = quote;
         _isLoading = false;
 
-        // FIX 3 (Continued): Dynamic Duration based on travel distance
-        // Logic: Small progress change = fast animation. Large change = slower animation.
-        final double travel = (_targetProgress - _animation.value).abs();
+        // FIX 2: Defensive Animation Logic
+        double travel = (_targetProgress - _animation.value).abs();
+        if (travel.isNaN || travel.isInfinite) travel = 0.0; // Safety check
+
         final int durationMs = (travel * 1500).toInt().clamp(800, 2000);
         _controller.duration = Duration(milliseconds: durationMs);
 
@@ -96,10 +100,13 @@ class _ProgressScreenState extends State<ProgressScreen>
 
   Color _getColorForProgress(double value) {
     if (value < 0.5) {
-      return Color.lerp(Colors.red[400], Colors.amber[400], value * 2)!;
+      // FIX 3: Null-safe color lerp
+      return Color.lerp(Colors.red[400], Colors.amber[400], value * 2) ??
+          Colors.amber;
     } else {
       return Color.lerp(
-          Colors.amber[400], Colors.green[400], (value - 0.5) * 2)!;
+              Colors.amber[400], Colors.green[400], (value - 0.5) * 2) ??
+          Colors.green;
     }
   }
 
@@ -230,7 +237,7 @@ class _ProgressScreenState extends State<ProgressScreen>
 
                     const SizedBox(height: 40),
 
-                    // 4. Motivation Card with Dynamic Quote
+                    // Motivation Card with Dynamic Quote
                     Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
@@ -259,12 +266,12 @@ class _ProgressScreenState extends State<ProgressScreen>
                           const SizedBox(width: 16),
                           Expanded(
                             child: Text(
-                              _dailyQuote, // Display the stored quote
+                              _dailyQuote,
                               style: TextStyle(
                                 fontStyle: FontStyle.italic,
                                 color: theme.textTheme.bodyLarge?.color,
                                 height: 1.4,
-                                fontSize: 15, // Slightly larger for readability
+                                fontSize: 15,
                               ),
                             ),
                           ),
