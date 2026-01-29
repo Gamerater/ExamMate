@@ -50,13 +50,13 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return const Scaffold(
       backgroundColor: Colors.white,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
+            Text(
               'ExamMate',
               style: TextStyle(
                 fontSize: 32,
@@ -65,8 +65,8 @@ class _SplashScreenState extends State<SplashScreen> {
                 letterSpacing: 1.2,
               ),
             ),
-            const SizedBox(height: 10),
-            const Text(
+            SizedBox(height: 10),
+            Text(
               'Competitive Exam Planner',
               style: TextStyle(
                 fontSize: 16,
@@ -74,8 +74,8 @@ class _SplashScreenState extends State<SplashScreen> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 40),
-            const CircularProgressIndicator(),
+            SizedBox(height: 40),
+            CircularProgressIndicator(),
           ],
         ),
       ),

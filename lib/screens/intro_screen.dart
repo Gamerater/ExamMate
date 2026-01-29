@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'home_screen.dart';
 
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});

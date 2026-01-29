@@ -307,7 +307,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: Switch(
                   value: _isReminderEnabled,
                   onChanged: _toggleReminder,
-                  activeColor: Colors.purple,
+                  activeThumbColor: Colors.purple,
                 ),
               ),
               if (_isReminderEnabled) ...[
@@ -338,7 +338,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       fontWeight: FontWeight.bold,
                                       color: textColor)),
                               const SizedBox(width: 8),
-                              Icon(Icons.edit, size: 14, color: Colors.purple),
+                              const Icon(Icons.edit,
+                                  size: 14, color: Colors.purple),
                             ],
                           ),
                         ],
@@ -356,7 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: Switch(
                     value: _showStreak,
                     onChanged: (val) => setState(() => _showStreak = val),
-                    activeColor: Colors.deepOrange),
+                    activeThumbColor: Colors.deepOrange),
               ),
               _buildDivider(),
               _buildSettingsTile(
@@ -366,7 +367,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: Switch(
                   value: _isDarkTheme,
                   onChanged: _toggleTheme,
-                  activeColor: Colors.indigo,
+                  activeThumbColor: Colors.indigo,
                 ),
               ),
             ],
