@@ -110,7 +110,7 @@ class ExamMateApp extends StatelessWidget {
               backgroundColor: Color(0xFF1E1E1E),
             ),
           ),
-          initialRoute: '/pomodoro',
+          initialRoute: '/intro',
           routes: {
             '/intro': (context) => const IntroScreen(),
             '/splash': (context) => const SplashScreen(),

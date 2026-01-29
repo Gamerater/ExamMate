@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:ui'; // Required for FontFeature
 
 class PomodoroScreen extends StatefulWidget {
   const PomodoroScreen({super.key});
@@ -19,7 +20,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   bool _isWorkMode = true;
   bool _isRunning = false;
 
-  // Durations (in minutes) - Default values
+  // Durations (in minutes)
   int _workDuration = 25;
   int _breakDuration = 5;
 
@@ -45,7 +46,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     setState(() {
       _workDuration = prefs.getInt('pomo_work_minutes') ?? 25;
       _breakDuration = prefs.getInt('pomo_break_minutes') ?? 5;
-      _resetTimer(); // Apply loaded settings
+      _resetTimer();
     });
   }
 
@@ -76,7 +77,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         } else {
           _timer?.cancel();
           setState(() => _isRunning = false);
-          // Optional: Add simple vibration or sound logic here later
           _showCompletionDialog();
         }
       });
@@ -87,7 +87,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     _timer?.cancel();
     setState(() {
       _isRunning = false;
-      // Set time based on current mode
       int minutes = _isWorkMode ? _workDuration : _breakDuration;
       _totalSeconds = minutes * 60;
       _remainingSeconds = _totalSeconds;
@@ -95,13 +94,14 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   }
 
   void _switchMode(bool isWork) {
-    if (_isWorkMode == isWork) return; // No change
+    if (_isWorkMode == isWork) return;
     setState(() {
       _isWorkMode = isWork;
       _resetTimer();
     });
   }
 
+  // --- DIALOGS ---
   void _showCompletionDialog() {
     showDialog(
       context: context,
@@ -114,7 +114,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _switchMode(!_isWorkMode); // Auto-switch mode
+              _switchMode(!_isWorkMode);
             },
             child: const Text("Switch Mode"),
           ),
@@ -127,57 +127,156 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     );
   }
 
+  // NEW: Smart Settings Dialog
   void _showSettingsDialog() {
     final TextEditingController workController =
         TextEditingController(text: _workDuration.toString());
     final TextEditingController breakController =
         TextEditingController(text: _breakDuration.toString());
 
+    bool isSmartMode = false;
+
+    // Check theme for correct UI colors
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Timer Settings"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: workController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "Work Duration (minutes)",
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: breakController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "Break Duration (minutes)",
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final int? w = int.tryParse(workController.text);
-              final int? b = int.tryParse(breakController.text);
-
-              if (w != null && b != null && w > 0 && b > 0) {
-                _saveSettings(w, b);
-                Navigator.pop(context);
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            // Smart Calculation Logic
+            void updateSmartBreak(String value) {
+              if (isSmartMode) {
+                int? workTime = int.tryParse(value);
+                if (workTime != null && workTime > 0) {
+                  int smartBreak = (workTime / 5).round();
+                  if (smartBreak < 1) smartBreak = 1;
+                  breakController.text = smartBreak.toString();
+                }
               }
-            },
-            child: const Text("Save"),
-          ),
-        ],
-      ),
+            }
+
+            return AlertDialog(
+              title: const Text("Timer Settings"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Smart Toggle
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isSmartMode
+                          ? Colors.blue.withOpacity(0.1)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: isSmartMode
+                          ? Border.all(color: Colors.blue.withOpacity(0.3))
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.auto_awesome,
+                                size: 18,
+                                color: isSmartMode ? Colors.blue : Colors.grey),
+                            const SizedBox(width: 8),
+                            Text("Smart Break",
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSmartMode
+                                        ? Colors.blue
+                                        : (isDark
+                                            ? Colors.grey[300]
+                                            : Colors.grey[700]))),
+                          ],
+                        ),
+                        Switch(
+                          value: isSmartMode,
+                          activeColor: Colors.blue,
+                          onChanged: (val) {
+                            setStateDialog(() {
+                              isSmartMode = val;
+                              if (val) {
+                                updateSmartBreak(workController.text);
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Work Input
+                  TextField(
+                    controller: workController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: "Study Duration (minutes)",
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.work, color: workColor),
+                    ),
+                    onChanged: (val) => updateSmartBreak(val),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Break Input
+                  TextField(
+                    controller: breakController,
+                    keyboardType: TextInputType.number,
+                    enabled: !isSmartMode,
+                    decoration: InputDecoration(
+                      labelText: isSmartMode
+                          ? "Auto-Calculated Break"
+                          : "Break Duration",
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.coffee, color: breakColor),
+                      filled: isSmartMode,
+                      // FIX: Adaptive Fill Color for Dark/Light Mode
+                      fillColor: isSmartMode
+                          ? (isDark ? Colors.grey[800] : Colors.grey[100])
+                          : null,
+                    ),
+                  ),
+                  if (isSmartMode)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Text(
+                        "Break adjusted automatically (1:5 ratio)",
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue[
+                                300]), // Lighter blue for dark mode visibility
+                      ),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancel"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final int? w = int.tryParse(workController.text);
+                    final int? b = int.tryParse(breakController.text);
+
+                    if (w != null && b != null && w > 0 && b > 0) {
+                      _saveSettings(w, b);
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: const Text("Save"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -208,10 +307,22 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         elevation: 0,
         centerTitle: true,
         iconTheme: theme.iconTheme,
+        // Manual Back Button logic
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            } else {
+              Navigator.pushReplacementNamed(context, '/home');
+            }
+          },
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(Icons.edit),
             onPressed: _showSettingsDialog,
+            tooltip: "Edit Durations",
           )
         ],
       ),
@@ -220,7 +331,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 1. TOGGLE BUTTONS
+            // TOGGLE BUTTONS
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
@@ -237,55 +348,63 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
             const Spacer(),
 
-            // 2. CIRCULAR TIMER
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 250,
-                  height: 250,
-                  child: CircularProgressIndicator(
-                    value: progress,
-                    strokeWidth: 15,
-                    color: currentColor,
-                    backgroundColor: currentColor.withOpacity(0.1),
-                    strokeCap: StrokeCap.round,
+            // CIRCULAR TIMER
+            GestureDetector(
+              onTap: _showSettingsDialog,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 250,
+                    height: 250,
+                    child: CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 15,
+                      color: currentColor,
+                      backgroundColor: currentColor.withOpacity(0.1),
+                      strokeCap: StrokeCap.round,
+                    ),
                   ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _formatTime(_remainingSeconds),
-                      style: TextStyle(
-                        fontSize: 60,
-                        fontWeight: FontWeight.bold,
-                        color: theme.textTheme.bodyLarge?.color,
-                        fontFeatures: const [
-                          FontFeature.tabularFigures()
-                        ], // Keeps numbers width consistent
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatTime(_remainingSeconds),
+                        style: TextStyle(
+                          fontSize: 60,
+                          fontWeight: FontWeight.bold,
+                          color: theme.textTheme.bodyLarge?.color,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
                       ),
-                    ),
-                    Text(
-                      _isWorkMode ? "Focus Time" : "Relax Time",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: currentColor,
-                        fontWeight: FontWeight.w500,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.auto_awesome,
+                              size: 14, color: Colors.grey[500]),
+                          const SizedBox(width: 4),
+                          Text(
+                            _isWorkMode ? "Focus" : "Rest",
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: currentColor,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
 
             const Spacer(),
 
-            // 3. CONTROLS
+            // CONTROLS
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Reset Button
                 IconButton(
                   onPressed: _resetTimer,
                   icon: const Icon(Icons.refresh),
@@ -293,7 +412,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                   color: Colors.grey,
                 ),
                 const SizedBox(width: 32),
-                // Play/Pause Button
                 GestureDetector(
                   onTap: _toggleTimer,
                   child: Container(
@@ -316,7 +434,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 80), // Balance the spacing
+                const SizedBox(width: 80),
               ],
             ),
             const SizedBox(height: 50),
