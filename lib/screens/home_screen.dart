@@ -318,6 +318,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(height: 16),
+
               _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/progress')
                     .then((_) => _loadData()),
@@ -326,6 +327,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   icon: Icons.bar_chart,
                   label: 'My Progress',
                   iconColor: Colors.purple,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // --- NEW POMODORO BUTTON ---
+              _BouncingButton(
+                onTap: () => Navigator.pushNamed(context, '/pomodoro'),
+                child: _buildModernButtonContent(
+                  context,
+                  icon: Icons.timer_outlined,
+                  label: 'Pomodoro Timer',
+                  iconColor: Colors.deepPurpleAccent,
                 ),
               ),
             ],
