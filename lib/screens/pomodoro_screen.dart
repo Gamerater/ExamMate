@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui'; // Required for FontFeature
@@ -10,13 +9,14 @@ class PomodoroScreen extends StatefulWidget {
   State<PomodoroScreen> createState() => _PomodoroScreenState();
 }
 
-class _PomodoroScreenState extends State<PomodoroScreen> {
+class _PomodoroScreenState extends State<PomodoroScreen>
+    with TickerProviderStateMixin {
   // Constants
   static const Color workColor = Colors.deepPurpleAccent;
   static const Color breakColor = Colors.green;
 
   // State Variables
-  Timer? _timer;
+  late AnimationController _controller;
   bool _isWorkMode = true;
   bool _isRunning = false;
 
@@ -24,30 +24,42 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
   int _workDuration = 25;
   int _breakDuration = 5;
 
-  // Timer Logic
-  int _remainingSeconds = 25 * 60;
-  int _totalSeconds = 25 * 60;
-
   @override
   void initState() {
     super.initState();
+    // Initialize controller (default 25 mins)
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(minutes: 25),
+    );
+
+    // Listen for timer finish
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.dismissed) {
+        setState(() => _isRunning = false);
+        _showCompletionDialog();
+      }
+    });
+
     _loadSettings();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _controller.dispose();
     super.dispose();
   }
 
   // --- LOGIC: SETTINGS & PERSISTENCE ---
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _workDuration = prefs.getInt('pomo_work_minutes') ?? 25;
-      _breakDuration = prefs.getInt('pomo_break_minutes') ?? 5;
-      _resetTimer();
-    });
+    if (mounted) {
+      setState(() {
+        _workDuration = prefs.getInt('pomo_work_minutes') ?? 25;
+        _breakDuration = prefs.getInt('pomo_break_minutes') ?? 5;
+        _updateControllerDuration();
+      });
+    }
   }
 
   Future<void> _saveSettings(int work, int breakTime) async {
@@ -55,49 +67,49 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     await prefs.setInt('pomo_work_minutes', work);
     await prefs.setInt('pomo_break_minutes', breakTime);
 
-    setState(() {
-      _workDuration = work;
-      _breakDuration = breakTime;
-      _isRunning = false;
-      _timer?.cancel();
-      _resetTimer();
-    });
-  }
-
-  // --- LOGIC: TIMER CONTROL ---
-  void _toggleTimer() {
-    if (_isRunning) {
-      _timer?.cancel();
-      setState(() => _isRunning = false);
-    } else {
-      setState(() => _isRunning = true);
-      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (_remainingSeconds > 0) {
-          setState(() => _remainingSeconds--);
-        } else {
-          _timer?.cancel();
-          setState(() => _isRunning = false);
-          _showCompletionDialog();
+    if (mounted) {
+      setState(() {
+        _workDuration = work;
+        _breakDuration = breakTime;
+        // If editing while running, stop and reset
+        if (_isRunning) {
+          _controller.stop();
+          _isRunning = false;
         }
+        _updateControllerDuration();
       });
     }
   }
 
+  void _updateControllerDuration() {
+    int minutes = _isWorkMode ? _workDuration : _breakDuration;
+    _controller.duration = Duration(minutes: minutes);
+    _controller.value = 1.0; // Reset progress to full
+  }
+
+  // --- LOGIC: TIMER CONTROL ---
+  void _toggleTimer() {
+    if (_controller.isAnimating) {
+      _controller.stop();
+      setState(() => _isRunning = false);
+    } else {
+      _controller.reverse(
+          from: _controller.value == 0.0 ? 1.0 : _controller.value);
+      setState(() => _isRunning = true);
+    }
+  }
+
   void _resetTimer() {
-    _timer?.cancel();
-    setState(() {
-      _isRunning = false;
-      int minutes = _isWorkMode ? _workDuration : _breakDuration;
-      _totalSeconds = minutes * 60;
-      _remainingSeconds = _totalSeconds;
-    });
+    _controller.stop();
+    _controller.value = 1.0; // Reset visual progress
+    setState(() => _isRunning = false);
   }
 
   void _switchMode(bool isWork) {
     if (_isWorkMode == isWork) return;
     setState(() {
       _isWorkMode = isWork;
-      _resetTimer();
+      _updateControllerDuration();
     });
   }
 
@@ -127,7 +139,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     );
   }
 
-  // NEW: Smart Settings Dialog
   void _showSettingsDialog() {
     final TextEditingController workController =
         TextEditingController(text: _workDuration.toString());
@@ -135,8 +146,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         TextEditingController(text: _breakDuration.toString());
 
     bool isSmartMode = false;
-
-    // Check theme for correct UI colors
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showDialog(
@@ -144,7 +153,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            // Smart Calculation Logic
             void updateSmartBreak(String value) {
               if (isSmartMode) {
                 int? workTime = int.tryParse(value);
@@ -161,7 +169,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Smart Toggle
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -200,9 +207,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                           onChanged: (val) {
                             setStateDialog(() {
                               isSmartMode = val;
-                              if (val) {
-                                updateSmartBreak(workController.text);
-                              }
+                              if (val) updateSmartBreak(workController.text);
                             });
                           },
                         ),
@@ -210,8 +215,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
-                  // Work Input
                   TextField(
                     controller: workController,
                     keyboardType: TextInputType.number,
@@ -223,8 +226,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                     onChanged: (val) => updateSmartBreak(val),
                   ),
                   const SizedBox(height: 16),
-
-                  // Break Input
                   TextField(
                     controller: breakController,
                     keyboardType: TextInputType.number,
@@ -236,7 +237,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.coffee, color: breakColor),
                       filled: isSmartMode,
-                      // FIX: Adaptive Fill Color for Dark/Light Mode
+                      // FIX: Dark mode specific fill color
                       fillColor: isSmartMode
                           ? (isDark ? Colors.grey[800] : Colors.grey[100])
                           : null,
@@ -247,10 +248,7 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                       padding: const EdgeInsets.only(top: 8.0),
                       child: Text(
                         "Break adjusted automatically (1:5 ratio)",
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue[
-                                300]), // Lighter blue for dark mode visibility
+                        style: TextStyle(fontSize: 12, color: Colors.blue[300]),
                       ),
                     ),
                 ],
@@ -264,7 +262,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
                   onPressed: () {
                     final int? w = int.tryParse(workController.text);
                     final int? b = int.tryParse(breakController.text);
-
                     if (w != null && b != null && w > 0 && b > 0) {
                       _saveSettings(w, b);
                       Navigator.pop(context);
@@ -280,9 +277,9 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     );
   }
 
-  String _formatTime(int seconds) {
-    final int m = seconds ~/ 60;
-    final int s = seconds % 60;
+  String _formatTime(int totalSeconds) {
+    final int m = totalSeconds ~/ 60;
+    final int s = totalSeconds % 60;
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
@@ -291,8 +288,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentColor = _isWorkMode ? workColor : breakColor;
-    final double progress =
-        _totalSeconds == 0 ? 0 : _remainingSeconds / _totalSeconds;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -307,7 +302,6 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
         elevation: 0,
         centerTitle: true,
         iconTheme: theme.iconTheme,
-        // Manual Back Button logic
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -348,54 +342,69 @@ class _PomodoroScreenState extends State<PomodoroScreen> {
 
             const Spacer(),
 
-            // CIRCULAR TIMER
+            // CIRCULAR TIMER - ANIMATED BUILDER FOR SMOOTHNESS
             GestureDetector(
               onTap: _showSettingsDialog,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: 250,
-                    height: 250,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 15,
-                      color: currentColor,
-                      backgroundColor: currentColor.withOpacity(0.1),
-                      strokeCap: StrokeCap.round,
-                    ),
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, child) {
+                  // Calculate time based on controller value
+                  // controller goes 1.0 -> 0.0
+                  // Duration * value = remaining time
+                  final count =
+                      _controller.duration!.inSeconds * _controller.value;
+
+                  return Stack(
+                    alignment: Alignment.center,
                     children: [
-                      Text(
-                        _formatTime(_remainingSeconds),
-                        style: TextStyle(
-                          fontSize: 60,
-                          fontWeight: FontWeight.bold,
-                          color: theme.textTheme.bodyLarge?.color,
-                          fontFeatures: const [FontFeature.tabularFigures()],
+                      SizedBox(
+                        width: 250,
+                        height: 250,
+                        child: CircularProgressIndicator(
+                          value:
+                              _controller.value, // Smooth float value (60fps)
+                          strokeWidth: 15,
+                          color: currentColor,
+                          backgroundColor: currentColor.withOpacity(0.1),
+                          strokeCap: StrokeCap.round,
                         ),
                       ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.auto_awesome,
-                              size: 14, color: Colors.grey[500]),
-                          const SizedBox(width: 4),
                           Text(
-                            _isWorkMode ? "Focus" : "Rest",
+                            _formatTime(
+                                count.ceil()), // Rounds up for timer display
                             style: TextStyle(
-                              fontSize: 16,
-                              color: currentColor,
-                              fontWeight: FontWeight.w500,
+                              fontSize: 60,
+                              fontWeight: FontWeight.bold,
+                              color: theme.textTheme.bodyLarge?.color,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures()
+                              ],
                             ),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.auto_awesome,
+                                  size: 14, color: Colors.grey[500]),
+                              const SizedBox(width: 4),
+                              Text(
+                                _isWorkMode ? "Focus" : "Rest",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: currentColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ],
-                  ),
-                ],
+                  );
+                },
               ),
             ),
 
