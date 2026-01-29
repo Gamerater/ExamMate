@@ -23,72 +23,88 @@ class _TaskScreenState extends State<TaskScreen> {
 
   // 1. IMPROVED INIT LOGIC
   Future<void> _loadAndCheckDailyProgress() async {
-    final prefs = await SharedPreferences.getInstance();
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    // Load Tasks
-    final String? tasksString = prefs.getString('tasks_data');
-    if (tasksString != null) {
-      final List<dynamic> decodedList = jsonDecode(tasksString);
-      _tasks = decodedList.map((item) => Task.fromMap(item)).toList();
-    }
+      // Load Tasks with Safety Check
+      final String? tasksString = prefs.getString('tasks_data');
+      if (tasksString != null) {
+        try {
+          final List<dynamic> decodedList = jsonDecode(tasksString);
+          _tasks = decodedList.map((item) => Task.fromMap(item)).toList();
+        } catch (e) {
+          debugPrint("Error decoding tasks data: $e");
+          _tasks = []; // Fallback to empty list on corruption
+        }
+      }
 
-    // Load Streak Data
-    int streak = prefs.getInt('current_streak') ?? 0;
-    final String? lastCompletionDate = prefs.getString('last_completion_date');
-    final String? lastOpenDate = prefs.getString('last_open_date');
+      // Load Streak Data
+      int streak = prefs.getInt('current_streak') ?? 0;
+      final String? lastCompletionDate =
+          prefs.getString('last_completion_date');
+      final String? lastOpenDate = prefs.getString('last_open_date');
 
-    final DateTime now = DateTime.now();
-    final DateTime todayDate = DateTime(now.year, now.month, now.day);
-    final String todayKey = "${now.year}-${now.month}-${now.day}";
+      final DateTime now = DateTime.now();
+      final DateTime todayDate = DateTime(now.year, now.month, now.day);
+      final String todayKey = "${now.year}-${now.month}-${now.day}";
 
-    // --- CRITICAL FIX: STREAK RESET LOGIC ---
-    // Compare "Today" vs "Last Completion Date" by whole days (ignore time).
-    // difference == 0: Completed today (streak safe)
-    // difference == 1: Completed yesterday (streak safe)
-    // difference > 1: Missed yesterday (reset streak)
-    if (lastCompletionDate != null) {
-      final List<String> parts = lastCompletionDate.split('-');
-      if (parts.length == 3) {
-        final DateTime lastDate = DateTime(
-          int.parse(parts[0]),
-          int.parse(parts[1]),
-          int.parse(parts[2]),
-        );
-        final int difference = todayDate.difference(lastDate).inDays;
-        if (difference > 1) {
+      // --- CRITICAL FIX: STREAK RESET LOGIC ---
+      if (lastCompletionDate != null) {
+        try {
+          final List<String> parts = lastCompletionDate.split('-');
+          if (parts.length == 3) {
+            final DateTime lastDate = DateTime(
+              int.parse(parts[0]),
+              int.parse(parts[1]),
+              int.parse(parts[2]),
+            );
+            final int difference = todayDate.difference(lastDate).inDays;
+            if (difference > 1) {
+              streak = 0;
+              await prefs.setInt('current_streak', 0);
+            }
+          }
+        } catch (e) {
+          debugPrint("Error parsing last date: $e");
+          // Reset streak if date data is corrupt
+          streak = 0;
+          await prefs.setInt('current_streak', 0);
+        }
+      } else {
+        if (streak > 0) {
           streak = 0;
           await prefs.setInt('current_streak', 0);
         }
       }
-    } else {
-      // Safety: If no date exists but streak > 0, reset it (data corruption fix)
-      if (streak > 0) {
-        streak = 0;
-        await prefs.setInt('current_streak', 0);
+
+      // Check for "New Day" to reset task checkboxes
+      if (lastOpenDate != null && lastOpenDate != todayKey) {
+        for (final t in _tasks) {
+          t.isCompleted = false;
+        }
+        await _saveTasks();
       }
+
+      await prefs.setString('last_open_date', todayKey);
+
+      if (!mounted) return;
+      setState(() {
+        _currentStreak = streak;
+      });
+    } catch (e) {
+      debugPrint("Critical error loading task data: $e");
     }
-
-    // Check for "New Day" to reset task checkboxes
-    if (lastOpenDate != null && lastOpenDate != todayKey) {
-      for (final t in _tasks) {
-        t.isCompleted = false;
-      }
-      await _saveTasks();
-    }
-
-    await prefs.setString('last_open_date', todayKey);
-
-    if (!mounted) return;
-    setState(() {
-      _currentStreak = streak;
-    });
   }
 
   Future<void> _saveTasks() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<Map<String, dynamic>> mapList =
-        _tasks.map((t) => t.toMap()).toList();
-    await prefs.setString('tasks_data', jsonEncode(mapList));
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final List<Map<String, dynamic>> mapList =
+          _tasks.map((t) => t.toMap()).toList();
+      await prefs.setString('tasks_data', jsonEncode(mapList));
+    } catch (e) {
+      debugPrint("Error saving tasks: $e");
+    }
   }
 
   void _addTask() {
@@ -111,31 +127,35 @@ class _TaskScreenState extends State<TaskScreen> {
     final bool allDone = _tasks.every((t) => t.isCompleted);
 
     if (allDone) {
-      final prefs = await SharedPreferences.getInstance();
-      final String? lastCompletionDate =
-          prefs.getString('last_completion_date');
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final String? lastCompletionDate =
+            prefs.getString('last_completion_date');
 
-      final DateTime now = DateTime.now();
-      final String todayKey = "${now.year}-${now.month}-${now.day}";
+        final DateTime now = DateTime.now();
+        final String todayKey = "${now.year}-${now.month}-${now.day}";
 
-      // 3. Prevent Double Counting
-      if (lastCompletionDate != todayKey) {
-        // INCREMENT STREAK!
-        final int newStreak = _currentStreak + 1;
-        await prefs.setInt('current_streak', newStreak);
-        await prefs.setString('last_completion_date', todayKey);
+        // 3. Prevent Double Counting
+        if (lastCompletionDate != todayKey) {
+          // INCREMENT STREAK!
+          final int newStreak = _currentStreak + 1;
+          await prefs.setInt('current_streak', newStreak);
+          await prefs.setString('last_completion_date', todayKey);
 
-        if (!mounted) return;
-        setState(() {
-          _currentStreak = newStreak;
-        });
+          if (!mounted) return; // FIX: Ensure widget exists before setState
+          setState(() {
+            _currentStreak = newStreak;
+          });
 
-        // Optional: Celebration
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("🎉 Daily Goal Complete! Streak Increased!"),
-          ),
-        );
+          // Optional: Celebration
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("🎉 Daily Goal Complete! Streak Increased!"),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error checking daily completion: $e");
       }
     }
   }
