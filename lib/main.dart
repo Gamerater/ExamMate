@@ -20,16 +20,29 @@ void main() async {
   // 1. Critical: Must be first
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Load Theme Preference (Safe)
-  final prefs = await SharedPreferences.getInstance();
-  final bool isDark = prefs.getBool('is_dark_mode') ?? false;
+  bool isDark = false;
 
-  // 3. Try to Initialize Notifications (Defensive)
-  // In release mode, if this fails, we catch the error so the app doesn't freeze.
+  // 2. Defensive Startup Logic
   try {
-    await NotificationService().init();
+    // Load Theme Preference (Safe)
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      isDark = prefs.getBool('is_dark_mode') ?? false;
+    } catch (e) {
+      debugPrint("Error loading SharedPrefs in main: $e");
+      // Fallback to default (false) if storage fails
+    }
+
+    // 3. Try to Initialize Notifications
+    // In release mode, if this fails, we catch the error so the app doesn't freeze.
+    try {
+      await NotificationService().init();
+    } catch (e) {
+      debugPrint("Failed to initialize notifications: $e");
+    }
   } catch (e) {
-    debugPrint("Failed to initialize notifications: $e");
+    debugPrint("Critical startup error: $e");
+    // Ensure app still launches even if pre-run logic explodes
   }
 
   // 4. Launch App (Always runs)
