@@ -30,6 +30,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+
+    // FIX: Check if widget is still mounted before calling setState
+    if (!mounted) return;
+
     setState(() {
       final savedExam = prefs.getString('selected_exam') ?? "Not Selected";
       _currentExam = savedExam;
@@ -56,6 +60,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _toggleTheme(bool isDark) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_dark_mode', isDark);
+
+    if (!mounted) return;
     setState(() => _isDarkTheme = isDark);
     ExamMateApp.themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
   }
@@ -66,18 +72,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final notificationService = NotificationService();
 
     if (value) {
-      // 1. Request Permission (POST_NOTIFICATIONS only)
+      // 1. Request Permission
       bool granted = await notificationService.requestPermissions();
 
+      // FIX: Check mounted after async permission request
+      if (!mounted) return;
+
       if (granted) {
-        // 2. Schedule (Safe Mode)
-        await notificationService.scheduleDailyReminder(
-            _reminderTime.hour, _reminderTime.minute);
+        // 2. Schedule (Safe Mode with Try-Catch)
+        try {
+          await notificationService.scheduleDailyReminder(
+              _reminderTime.hour, _reminderTime.minute);
 
-        await prefs.setBool('daily_reminder', true);
-        setState(() => _isReminderEnabled = true);
+          await prefs.setBool('daily_reminder', true);
 
-        if (mounted) {
+          if (!mounted) return;
+          setState(() => _isReminderEnabled = true);
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -85,6 +96,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               backgroundColor: Colors.green,
             ),
           );
+        } catch (e) {
+          debugPrint("Error scheduling reminder: $e");
+          // Revert toggle if scheduling failed
+          if (mounted) setState(() => _isReminderEnabled = false);
         }
       } else {
         // 3. Denied
@@ -92,9 +107,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) _showPermissionDeniedDialog();
       }
     } else {
-      // 4. Turn Off
-      await notificationService.cancelNotifications();
+      // 4. Turn Off (Safe Mode with Try-Catch)
+      try {
+        await notificationService.cancelNotifications();
+      } catch (e) {
+        debugPrint("Error cancelling notifications: $e");
+      }
+
       await prefs.setBool('daily_reminder', false);
+
+      if (!mounted) return;
       setState(() => _isReminderEnabled = false);
     }
   }
@@ -125,17 +147,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await prefs.setInt('reminder_hour', picked.hour);
       await prefs.setInt('reminder_minute', picked.minute);
 
+      // FIX: Check mounted before setState
+      if (!mounted) return;
       setState(() => _reminderTime = picked);
 
       if (_isReminderEnabled) {
         final service = NotificationService();
-        await service.cancelNotifications();
-        await service.scheduleDailyReminder(picked.hour, picked.minute);
+        try {
+          await service.cancelNotifications();
+          await service.scheduleDailyReminder(picked.hour, picked.minute);
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Reminder rescheduled!")),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Reminder rescheduled!")),
+            );
+          }
+        } catch (e) {
+          debugPrint("Error rescheduling reminder: $e");
         }
       }
     }
@@ -159,9 +187,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ... (Existing helper methods for Exam Date and Confirmation Dialog remain unchanged) ...
-  // Paste _pickNewDate, _showConfirmationDialog, build, _buildSectionHeader, etc. from previous file
-
   Future<void> _pickNewDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -173,13 +198,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (picked != null) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('exam_date', picked.toIso8601String());
+
+      if (!mounted) return;
       setState(() {
         _currentDateDisplay = "${picked.day}/${picked.month}/${picked.year}";
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text("Exam date updated!")));
-      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Exam date updated!")));
     }
   }
 
