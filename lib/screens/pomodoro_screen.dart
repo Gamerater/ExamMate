@@ -296,8 +296,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     bool tempVibration = _enableVibration;
     bool isSmartMode = _isSmartBreak;
 
-    // Theme check for text colors
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // FIX: Unused variable removed
 
     showDialog(
       context: context,
@@ -309,6 +308,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
               int initialMin = isWork ? tempWork : tempBreak;
               if (initialMin < 1) initialMin = 1;
 
+              // CRITICAL FIX: Clamp values to prevent Red Screen crash
               final int h = (initialMin ~/ 60).clamp(0, 23);
               final int m = (initialMin % 60).clamp(0, 59);
 
@@ -444,7 +444,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
           style: TextStyle(
             color: enabled
                 ? Theme.of(context).textTheme.bodyLarge?.color
-                : Theme.of(context).disabledColor, // Correct disabled color
+                : Theme.of(context).disabledColor,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -475,7 +475,8 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.1),
+                    // FIX: Deprecated withOpacity -> withValues
+                    color: Colors.blue.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
@@ -687,8 +688,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
+                    // FIX: Deprecated withOpacity -> withValues
                     color: _linkedTask != null
-                        ? currentColor.withOpacity(0.1)
+                        ? currentColor.withValues(alpha: 0.1)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
@@ -740,7 +742,8 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                         value: _controller.value,
                         strokeWidth: 20,
                         color: currentColor,
-                        backgroundColor: currentColor.withOpacity(0.1),
+                        // FIX: Deprecated withOpacity -> withValues
+                        backgroundColor: currentColor.withValues(alpha: 0.1),
                         strokeCap: StrokeCap.round,
                       ),
                     ),
@@ -792,7 +795,8 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                            color: currentColor.withOpacity(0.4),
+                            // FIX: Deprecated withOpacity -> withValues
+                            color: currentColor.withValues(alpha: 0.4),
                             blurRadius: 15,
                             offset: const Offset(0, 5)),
                       ],
