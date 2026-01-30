@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Required for logic
 
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});
@@ -11,8 +12,7 @@ class IntroScreen extends StatefulWidget {
 
 class _IntroScreenState extends State<IntroScreen>
     with TickerProviderStateMixin {
-  // Controllers are initialized in initState, so we can treat them as safe,
-  // but keeping them nullable (?) allows for safe disposal if init fails strictly.
+  // Animation Controllers (Nullable for safety)
   AnimationController? _mainController;
   Animation<double>? _logoFade;
   Animation<Offset>? _textSlide;
@@ -24,13 +24,16 @@ class _IntroScreenState extends State<IntroScreen>
   @override
   void initState() {
     super.initState();
-    // FIX: Initialize immediately. No need to wait for a frame.
-    // This prevents the "blank screen flash" and ensures vars are set before build().
-    _initAnimations();
+    // Initialize after the first frame to avoid layout issues
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _initAnimations();
+      }
+    });
   }
 
   void _initAnimations() {
-    // 1. Setup Main Controller
+    // 1. Setup Main Controller (Logo & Text)
     _mainController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -47,7 +50,7 @@ class _IntroScreenState extends State<IntroScreen>
       CurvedAnimation(parent: _mainController!, curve: Curves.easeOut),
     );
 
-    // 2. Setup Progress Controller
+    // 2. Setup Progress Controller (Loading Bar)
     _progressController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -62,26 +65,45 @@ class _IntroScreenState extends State<IntroScreen>
       end: Colors.deepOrange,
     ).animate(_progressController!);
 
-    // 3. Start
+    // 3. Start Animations
     _mainController!.forward();
     _progressController!.forward();
 
-    // 4. Listen for completion
+    // 4. FIX: Listen for completion, then decide where to go
     _progressController!.addStatusListener((status) {
       if (status == AnimationStatus.completed) {
-        _navigateToHome();
+        _checkAndNavigate();
       }
     });
 
-    // Note: No setState needed here because we are inside initState flow.
+    // Rebuild UI now that controllers exist
+    setState(() {});
   }
 
-  void _navigateToHome() {
-    // FIX: Always check mounted before navigation to prevent async crashes
-    if (!mounted) return;
+  /// FIX: Smart Navigation Logic
+  /// Checks if the user is new or returning before navigating.
+  Future<void> _checkAndNavigate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    // We assume the route '/home' is defined in your main.dart
-    Navigator.of(context).pushReplacementNamed('/home');
+      // Check if user has already selected an exam
+      final String? savedExam = prefs.getString('selected_exam');
+      final String? examDate = prefs.getString('exam_date');
+
+      if (!mounted) return;
+
+      if (savedExam != null && savedExam.isNotEmpty && examDate != null) {
+        // Data exists -> Returning User -> Go to Dashboard
+        Navigator.of(context).pushReplacementNamed('/home');
+      } else {
+        // No data -> New User -> Go to Exam Selection
+        Navigator.of(context).pushReplacementNamed('/exam');
+      }
+    } catch (e) {
+      debugPrint("Error reading prefs in Intro: $e");
+      // Safety Fallback: Go to Selection if something breaks
+      if (mounted) Navigator.of(context).pushReplacementNamed('/exam');
+    }
   }
 
   @override
@@ -96,10 +118,10 @@ class _IntroScreenState extends State<IntroScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = Theme.of(context).scaffoldBackgroundColor;
 
-    // FIX: We can safely remove the "return SizedBox()" guard here
-    // because _initAnimations() runs synchronously in initState.
-    // However, if for some edge case they are null, safe access (!) or fallback is mostly handled.
-    // We will assume they are initialized for the main flow.
+    // Safety check to prevent red screen before init
+    if (_mainController == null || _progressController == null) {
+      return Scaffold(backgroundColor: bgColor, body: const SizedBox());
+    }
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -132,7 +154,7 @@ class _IntroScreenState extends State<IntroScreen>
                     'assets/icon/icon.png',
                     width: 80,
                     height: 80,
-                    // Defensive error builder
+                    // Fallback icon if image is missing
                     errorBuilder: (c, o, s) => const Icon(Icons.school,
                         size: 80, color: Colors.deepOrange),
                   ),
@@ -184,9 +206,8 @@ class _IntroScreenState extends State<IntroScreen>
                         value: _progressValue!.value,
                         backgroundColor:
                             isDark ? Colors.grey[800] : Colors.grey[200],
-                        // FIX: Pass the animation object directly.
-                        // It is more efficient than creating AlwaysStoppedAnimation every frame.
-                        valueColor: _progressColor,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                            _progressColor!.value ?? Colors.deepOrange),
                         minHeight: 4,
                       ),
                     ),
