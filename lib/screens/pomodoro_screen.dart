@@ -30,6 +30,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   bool _enableSound = true;
   bool _enableVibration = true;
 
+  // Feedback State Control
+  bool _cancelFeedback = false; // NEW: Controls loop termination
+
   // Audio Player
   final AudioPlayer _audioPlayer = AudioPlayer();
 
@@ -45,10 +48,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     // Listen for timer finish
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.dismissed) {
-        // Timer Finished Naturally
-        setState(() => _isRunning = false);
-        _triggerFeedback();
-        _showCompletionDialog();
+        _handleTimerComplete();
       }
     });
 
@@ -57,9 +57,65 @@ class _PomodoroScreenState extends State<PomodoroScreen>
 
   @override
   void dispose() {
+    _stopFeedback(); // Ensure everything stops on exit
     _controller.dispose();
     _audioPlayer.dispose();
     super.dispose();
+  }
+
+  // --- LOGIC: TIMER COMPLETION ---
+  void _handleTimerComplete() {
+    setState(() => _isRunning = false);
+    _triggerFeedback();
+    _showCompletionDialog();
+  }
+
+  // --- LOGIC: FEEDBACK (Sound & Vibration) ---
+  Future<void> _triggerFeedback() async {
+    // Reset cancellation flag so feedback can run
+    _cancelFeedback = false;
+
+    // 1. Sound
+    if (_enableSound) {
+      try {
+        await _audioPlayer.stop();
+        // Ensure 'assets/sounds/bell.mp3' exists
+        await _audioPlayer.play(AssetSource('sounds/bell.mp3'));
+      } catch (e) {
+        debugPrint("Error playing sound: $e");
+      }
+    }
+
+    // 2. Vibration (Built-in HapticFeedback)
+    if (_enableVibration) {
+      // We loop the vibration to make it noticeable (like an alarm)
+      // Loop runs 4 times or until cancelled
+      for (int i = 0; i < 4; i++) {
+        // SAFETY CHECK: Stop loop if user pressed Reset or left screen
+        if (_cancelFeedback || !mounted) break;
+
+        try {
+          // .vibrate() is stronger/longer than .impact()
+          await HapticFeedback.vibrate();
+        } catch (e) {
+          debugPrint("Haptic error: $e");
+        }
+
+        // Wait between pulses (800ms)
+        if (_cancelFeedback || !mounted) break;
+        await Future.delayed(const Duration(milliseconds: 800));
+      }
+    }
+  }
+
+  // FIX: Immediate Stop
+  Future<void> _stopFeedback() async {
+    _cancelFeedback = true; // Signal vibration loop to break
+    try {
+      await _audioPlayer.stop(); // Kill sound
+    } catch (e) {
+      // Ignore errors
+    }
   }
 
   // --- LOGIC: SETTINGS & PERSISTENCE ---
@@ -95,12 +151,11 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         _enableSound = sound;
         _enableVibration = vibration;
 
-        // If editing while running, stop and reset
         if (_isRunning) {
-          _controller.stop();
-          _isRunning = false;
+          _resetTimer();
+        } else {
+          _updateControllerDuration();
         }
-        _updateControllerDuration();
       });
     }
   }
@@ -108,29 +163,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   void _updateControllerDuration() {
     int minutes = _isWorkMode ? _workDuration : _breakDuration;
     _controller.duration = Duration(minutes: minutes);
-    _controller.value = 1.0; // Reset progress to full
-  }
-
-  // --- LOGIC: FEEDBACK ---
-  Future<void> _triggerFeedback() async {
-    // 1. Vibration (Using Native HapticFeedback - Safe for Android Build)
-    if (_enableVibration) {
-      // "Heavy Impact" simulates a strong vibration tick
-      // We trigger it twice for a distinct "alert" feel without external plugins
-      await HapticFeedback.heavyImpact();
-      await Future.delayed(const Duration(milliseconds: 200));
-      await HapticFeedback.heavyImpact();
-    }
-
-    // 2. Sound
-    if (_enableSound) {
-      try {
-        // Ensure 'assets/sounds/bell.mp3' is in pubspec.yaml
-        await _audioPlayer.play(AssetSource('sounds/bell.mp3'));
-      } catch (e) {
-        debugPrint("Error playing sound: $e");
-      }
-    }
+    _controller.value = 1.0;
   }
 
   // --- LOGIC: TIMER CONTROL ---
@@ -146,8 +179,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   }
 
   void _resetTimer() {
+    _stopFeedback(); // <--- STOP ALERT IMMEDIATELY
     _controller.stop();
-    _controller.value = 1.0; // Reset visual progress
+    _controller.value = 1.0;
     setState(() => _isRunning = false);
   }
 
@@ -204,13 +238,17 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         actions: [
           TextButton(
             onPressed: () {
+              _stopFeedback(); // Stop alert on action
               Navigator.pop(context);
               _switchMode(!_isWorkMode);
             },
             child: const Text("Switch Mode"),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              _stopFeedback(); // Stop alert on action
+              Navigator.pop(context);
+            },
             child: const Text("Stay Here"),
           ),
         ],
@@ -232,7 +270,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            // Helper for picking time
             Future<void> pickDuration(bool forWork) async {
               final initialMinutes = forWork ? tempWork : tempBreak;
               final initialTime = TimeOfDay(
@@ -279,7 +316,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Smart Toggle
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 8),
@@ -340,8 +376,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                       ),
                     ),
                     const SizedBox(height: 24),
-
-                    // Duration Selectors
                     _buildDurationTile(
                         label: "Work Duration",
                         minutes: tempWork,
@@ -359,12 +393,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                           onTap:
                               isSmartMode ? null : () => pickDuration(false)),
                     ),
-
                     const SizedBox(height: 24),
                     const Divider(),
                     const SizedBox(height: 8),
-
-                    // Sound & Vibration Toggles
                     SwitchListTile(
                       title: const Text("Play Sound"),
                       subtitle: const Text("When timer ends"),
