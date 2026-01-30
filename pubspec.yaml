@@ -13,16 +13,15 @@ dependencies:
   shared_preferences: ^2.3.2
   google_fonts: ^6.2.1
   cupertino_icons: ^1.0.6
-  # Add these:
   flutter_local_notifications: ^18.0.1
   timezone: ^0.10.0
+  audioplayers: ^6.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
-  # Add this line:
   flutter_native_splash: ^2.3.1
 
 # Configuration for App Icons
@@ -45,4 +44,11 @@ flutter_native_splash:
   #   color: "#121212"
 
 flutter:
+
   uses-material-design: true
+
+  
+
+  assets:
+
+    - assets/sounds/bell.mp3  # <--- Add this line

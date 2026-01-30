@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // REQUIRED for HapticFeedback
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui'; // Required for FontFeature
+import 'package:audioplayers/audioplayers.dart';
 
 class PomodoroScreen extends StatefulWidget {
   const PomodoroScreen({super.key});
@@ -24,6 +26,13 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   int _workDuration = 25;
   int _breakDuration = 5;
 
+  // Feedback Preferences
+  bool _enableSound = true;
+  bool _enableVibration = true;
+
+  // Audio Player
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   @override
   void initState() {
     super.initState();
@@ -36,7 +45,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     // Listen for timer finish
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.dismissed) {
+        // Timer Finished Naturally
         setState(() => _isRunning = false);
+        _triggerFeedback();
         _showCompletionDialog();
       }
     });
@@ -47,6 +58,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   @override
   void dispose() {
     _controller.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -57,21 +69,33 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       setState(() {
         _workDuration = prefs.getInt('pomo_work_minutes') ?? 25;
         _breakDuration = prefs.getInt('pomo_break_minutes') ?? 5;
+        _enableSound = prefs.getBool('pomo_sound_enabled') ?? true;
+        _enableVibration = prefs.getBool('pomo_vibration_enabled') ?? true;
         _updateControllerDuration();
       });
     }
   }
 
-  Future<void> _saveSettings(int work, int breakTime) async {
+  Future<void> _saveSettings({
+    required int work,
+    required int breakTime,
+    required bool sound,
+    required bool vibration,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('pomo_work_minutes', work);
     await prefs.setInt('pomo_break_minutes', breakTime);
+    await prefs.setBool('pomo_sound_enabled', sound);
+    await prefs.setBool('pomo_vibration_enabled', vibration);
 
     if (mounted) {
       setState(() {
         _workDuration = work;
         _breakDuration = breakTime;
-        // If editing while running, stop and reset to apply new time
+        _enableSound = sound;
+        _enableVibration = vibration;
+
+        // If editing while running, stop and reset
         if (_isRunning) {
           _controller.stop();
           _isRunning = false;
@@ -85,6 +109,28 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     int minutes = _isWorkMode ? _workDuration : _breakDuration;
     _controller.duration = Duration(minutes: minutes);
     _controller.value = 1.0; // Reset progress to full
+  }
+
+  // --- LOGIC: FEEDBACK ---
+  Future<void> _triggerFeedback() async {
+    // 1. Vibration (Using Native HapticFeedback - Safe for Android Build)
+    if (_enableVibration) {
+      // "Heavy Impact" simulates a strong vibration tick
+      // We trigger it twice for a distinct "alert" feel without external plugins
+      await HapticFeedback.heavyImpact();
+      await Future.delayed(const Duration(milliseconds: 200));
+      await HapticFeedback.heavyImpact();
+    }
+
+    // 2. Sound
+    if (_enableSound) {
+      try {
+        // Ensure 'assets/sounds/bell.mp3' is in pubspec.yaml
+        await _audioPlayer.play(AssetSource('sounds/bell.mp3'));
+      } catch (e) {
+        debugPrint("Error playing sound: $e");
+      }
+    }
   }
 
   // --- LOGIC: TIMER CONTROL ---
@@ -105,15 +151,12 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     setState(() => _isRunning = false);
   }
 
-  // --- FIX: SAFE MODE SWITCHING ---
   Future<void> _confirmSwitch(bool isWork) async {
-    // 1. If timer is NOT running, switch immediately
     if (!_isRunning) {
       _switchMode(isWork);
       return;
     }
 
-    // 2. If timer IS running, ask for confirmation
     final bool? shouldSwitch = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -122,11 +165,11 @@ class _PomodoroScreenState extends State<PomodoroScreen>
             "The timer is currently running. Switching modes will stop and reset it."),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false), // Cancel
+            onPressed: () => Navigator.pop(context, false),
             child: const Text("Cancel"),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true), // Confirm
+            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             child: const Text("Stop & Switch",
                 style: TextStyle(color: Colors.white)),
@@ -135,10 +178,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       ),
     );
 
-    // 3. Process Result
     if (shouldSwitch == true) {
-      _resetTimer(); // Stop current timer
-      _switchMode(isWork); // Switch
+      _resetTimer();
+      _switchMode(isWork);
     }
   }
 
@@ -176,14 +218,13 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     );
   }
 
-  // --- FIX: IMPROVED SETTINGS UI (Time Picker) ---
   void _showSettingsDialog() {
-    // Temporary variables to hold state inside dialog
     int tempWork = _workDuration;
     int tempBreak = _breakDuration;
-    bool isSmartMode =
-        false; // Default off, let user toggle if they want auto-calc
+    bool tempSound = _enableSound;
+    bool tempVibration = _enableVibration;
 
+    bool isSmartMode = false;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showDialog(
@@ -191,8 +232,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            // Helper to pick duration using Flutter's native Time Picker
-            // We use TimeOfDay but interpret Hour as Hours and Minute as Minutes
+            // Helper for picking time
             Future<void> pickDuration(bool forWork) async {
               final initialMinutes = forWork ? tempWork : tempBreak;
               final initialTime = TimeOfDay(
@@ -201,8 +241,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
               final TimeOfDay? picked = await showTimePicker(
                 context: context,
                 initialTime: initialTime,
-                initialEntryMode: TimePickerEntryMode
-                    .input, // Input mode is cleaner for duration
+                initialEntryMode: TimePickerEntryMode.input,
                 helpText:
                     forWork ? "SELECT WORK DURATION" : "SELECT BREAK DURATION",
                 hourLabelText: "Hours",
@@ -219,19 +258,16 @@ class _PomodoroScreenState extends State<PomodoroScreen>
               if (picked != null) {
                 setStateDialog(() {
                   int totalMinutes = (picked.hour * 60) + picked.minute;
-                  if (totalMinutes < 1) totalMinutes = 1; // Minimum 1 min
+                  if (totalMinutes < 1) totalMinutes = 1;
 
                   if (forWork) {
                     tempWork = totalMinutes;
-                    // Auto-calculate break if Smart Mode is ON
                     if (isSmartMode) {
                       tempBreak = (tempWork / 5).round();
                       if (tempBreak < 1) tempBreak = 1;
                     }
                   } else {
                     tempBreak = totalMinutes;
-                    // If user manually sets break, maybe turn off smart mode?
-                    // Let's keep it simple: manual override is allowed.
                   }
                 });
               }
@@ -239,92 +275,115 @@ class _PomodoroScreenState extends State<PomodoroScreen>
 
             return AlertDialog(
               title: const Text("Timer Settings"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Smart Toggle
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isSmartMode
-                          ? Colors.blue.withOpacity(0.1)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      border: isSmartMode
-                          ? Border.all(color: Colors.blue.withOpacity(0.3))
-                          : Border.all(color: Colors.grey.withOpacity(0.2)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.auto_awesome,
-                                size: 20,
-                                color: isSmartMode ? Colors.blue : Colors.grey),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text("Smart Break",
-                                    style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: isSmartMode
-                                            ? Colors.blue
-                                            : (isDark
-                                                ? Colors.grey[300]
-                                                : Colors.grey[700]))),
-                                if (isSmartMode)
-                                  Text("1:5 Ratio (Auto)",
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Smart Toggle
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSmartMode
+                            ? Colors.blue.withOpacity(0.1)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: isSmartMode
+                            ? Border.all(color: Colors.blue.withOpacity(0.3))
+                            : Border.all(color: Colors.grey.withOpacity(0.2)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.auto_awesome,
+                                  size: 20,
+                                  color:
+                                      isSmartMode ? Colors.blue : Colors.grey),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("Smart Break",
                                       style: TextStyle(
-                                          fontSize: 10,
-                                          color: Colors.blue[300])),
-                              ],
-                            ),
-                          ],
-                        ),
-                        Switch(
-                          value: isSmartMode,
-                          activeColor: Colors.blue,
-                          onChanged: (val) {
-                            setStateDialog(() {
-                              isSmartMode = val;
-                              if (val) {
-                                // Trigger calculation immediately
-                                tempBreak = (tempWork / 5).round();
-                                if (tempBreak < 1) tempBreak = 1;
-                              }
-                            });
-                          },
-                        ),
-                      ],
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: isSmartMode
+                                              ? Colors.blue
+                                              : (isDark
+                                                  ? Colors.grey[300]
+                                                  : Colors.grey[700]))),
+                                  if (isSmartMode)
+                                    Text("1:5 Ratio (Auto)",
+                                        style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.blue[300])),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Switch(
+                            value: isSmartMode,
+                            activeColor: Colors.blue,
+                            onChanged: (val) {
+                              setStateDialog(() {
+                                isSmartMode = val;
+                                if (val) {
+                                  tempBreak = (tempWork / 5).round();
+                                  if (tempBreak < 1) tempBreak = 1;
+                                }
+                              });
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
 
-                  // Work Duration Selector
-                  _buildDurationTile(
-                      label: "Work Duration",
-                      minutes: tempWork,
-                      icon: Icons.work,
-                      color: workColor,
-                      onTap: () => pickDuration(true)),
+                    // Duration Selectors
+                    _buildDurationTile(
+                        label: "Work Duration",
+                        minutes: tempWork,
+                        icon: Icons.work,
+                        color: workColor,
+                        onTap: () => pickDuration(true)),
+                    const SizedBox(height: 16),
+                    Opacity(
+                      opacity: isSmartMode ? 0.5 : 1.0,
+                      child: _buildDurationTile(
+                          label: isSmartMode ? "Auto Break" : "Break Duration",
+                          minutes: tempBreak,
+                          icon: Icons.coffee,
+                          color: breakColor,
+                          onTap:
+                              isSmartMode ? null : () => pickDuration(false)),
+                    ),
 
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 8),
 
-                  // Break Duration Selector
-                  Opacity(
-                    opacity: isSmartMode ? 0.5 : 1.0,
-                    child: _buildDurationTile(
-                        label: isSmartMode ? "Auto Break" : "Break Duration",
-                        minutes: tempBreak,
-                        icon: Icons.coffee,
-                        color: breakColor,
-                        onTap: isSmartMode ? null : () => pickDuration(false)),
-                  ),
-                ],
+                    // Sound & Vibration Toggles
+                    SwitchListTile(
+                      title: const Text("Play Sound"),
+                      subtitle: const Text("When timer ends"),
+                      value: tempSound,
+                      activeColor: Colors.blue,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: (val) => setStateDialog(() => tempSound = val),
+                    ),
+                    SwitchListTile(
+                      title: const Text("Vibrate"),
+                      subtitle: const Text("When timer ends"),
+                      value: tempVibration,
+                      activeColor: Colors.blue,
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: (val) =>
+                          setStateDialog(() => tempVibration = val),
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -333,7 +392,12 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    _saveSettings(tempWork, tempBreak);
+                    _saveSettings(
+                      work: tempWork,
+                      breakTime: tempBreak,
+                      sound: tempSound,
+                      vibration: tempVibration,
+                    );
                     Navigator.pop(context);
                   },
                   child: const Text("Save"),
@@ -346,7 +410,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     );
   }
 
-  // Helper widget for the custom duration selector UI
   Widget _buildDurationTile({
     required String label,
     required int minutes,
@@ -448,7 +511,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // TOGGLE BUTTONS
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
@@ -462,10 +524,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 ],
               ),
             ),
-
             const Spacer(),
-
-            // CIRCULAR TIMER - ANIMATED BUILDER FOR SMOOTHNESS
             GestureDetector(
               onTap: _showSettingsDialog,
               child: AnimatedBuilder(
@@ -524,10 +583,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 },
               ),
             ),
-
             const Spacer(),
-
-            // CONTROLS
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -573,7 +629,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   Widget _buildModeButton(String label, bool isWork) {
     final bool isSelected = _isWorkMode == isWork;
     return GestureDetector(
-      // FIX: Use guarded switch
       onTap: () => _confirmSwitch(isWork),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
