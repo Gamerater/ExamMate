@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/task.dart';
+import '../models/task.dart'; // Ensure this model has id, date, note, effort
 
 class TaskScreen extends StatefulWidget {
   const TaskScreen({super.key});
@@ -12,8 +12,8 @@ class TaskScreen extends StatefulWidget {
 
 class _TaskScreenState extends State<TaskScreen> {
   List<Task> _tasks = [];
-  final TextEditingController _taskController = TextEditingController();
   int _currentStreak = 0;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -21,79 +21,124 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
-  // 1. IMPROVED INIT LOGIC
+  // --- 1. IMPROVED INIT & CARRY FORWARD LOGIC ---
   Future<void> _loadAndCheckDailyProgress() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // Load Tasks with Safety Check
+      // A. Load Tasks
       final String? tasksString = prefs.getString('tasks_data');
+      List<Task> allLoadedTasks = [];
+
       if (tasksString != null) {
         try {
           final List<dynamic> decodedList = jsonDecode(tasksString);
-          _tasks = decodedList.map((item) => Task.fromMap(item)).toList();
+          allLoadedTasks =
+              decodedList.map((item) => Task.fromMap(item)).toList();
         } catch (e) {
-          debugPrint("Error decoding tasks data: $e");
-          _tasks = []; // Fallback to empty list on corruption
+          debugPrint("Error decoding tasks: $e");
         }
       }
 
-      // Load Streak Data
-      int streak = prefs.getInt('current_streak') ?? 0;
-      final String? lastCompletionDate =
-          prefs.getString('last_completion_date');
-      final String? lastOpenDate = prefs.getString('last_open_date');
+      // B. Filter Tasks (Today vs History)
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
 
-      final DateTime now = DateTime.now();
-      final DateTime todayDate = DateTime(now.year, now.month, now.day);
-      final String todayKey = "${now.year}-${now.month}-${now.day}";
+      List<Task> todaysTasks = allLoadedTasks.where((t) {
+        final tDate = DateTime(t.date.year, t.date.month, t.date.day);
+        return tDate.isAtSameMomentAs(todayStart) || tDate.isAfter(todayStart);
+      }).toList();
 
-      // --- CRITICAL FIX: STREAK RESET LOGIC ---
-      if (lastCompletionDate != null) {
-        try {
-          final List<String> parts = lastCompletionDate.split('-');
-          if (parts.length == 3) {
-            final DateTime lastDate = DateTime(
-              int.parse(parts[0]),
-              int.parse(parts[1]),
-              int.parse(parts[2]),
-            );
-            final int difference = todayDate.difference(lastDate).inDays;
-            if (difference > 1) {
-              streak = 0;
-              await prefs.setInt('current_streak', 0);
-            }
-          }
-        } catch (e) {
-          debugPrint("Error parsing last date: $e");
-          // Reset streak if date data is corrupt
-          streak = 0;
-          await prefs.setInt('current_streak', 0);
-        }
-      } else {
-        if (streak > 0) {
-          streak = 0;
-          await prefs.setInt('current_streak', 0);
-        }
+      List<Task> pendingOldTasks = allLoadedTasks.where((t) {
+        final tDate = DateTime(t.date.year, t.date.month, t.date.day);
+        return tDate.isBefore(todayStart) && !t.isCompleted;
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _tasks = todaysTasks;
+          _isLoading = false;
+        });
       }
 
-      // Check for "New Day" to reset task checkboxes
-      if (lastOpenDate != null && lastOpenDate != todayKey) {
-        for (final t in _tasks) {
-          t.isCompleted = false;
-        }
-        await _saveTasks();
+      _handleStreakLogic(prefs, todayStart);
+
+      if (pendingOldTasks.isNotEmpty && mounted) {
+        Future.delayed(Duration.zero, () {
+          _showCarryForwardDialog(pendingOldTasks);
+        });
       }
-
-      await prefs.setString('last_open_date', todayKey);
-
-      if (!mounted) return;
-      setState(() {
-        _currentStreak = streak;
-      });
     } catch (e) {
-      debugPrint("Critical error loading task data: $e");
+      debugPrint("Critical error loading data: $e");
+      setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _handleStreakLogic(
+      SharedPreferences prefs, DateTime todayDate) async {
+    int streak = prefs.getInt('current_streak') ?? 0;
+    final String? lastCompletionDate = prefs.getString('last_completion_date');
+    final now = DateTime.now();
+    final String todayKey = "${now.year}-${now.month}-${now.day}";
+
+    if (lastCompletionDate != null) {
+      try {
+        final List<String> parts = lastCompletionDate.split('-');
+        if (parts.length == 3) {
+          final DateTime lastDate = DateTime(
+              int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+          final int difference = todayDate.difference(lastDate).inDays;
+          if (difference > 1) {
+            streak = 0;
+            await prefs.setInt('current_streak', 0);
+          }
+        }
+      } catch (e) {
+        streak = 0;
+      }
+    } else if (streak > 0) {
+      streak = 0;
+      await prefs.setInt('current_streak', 0);
+    }
+
+    await prefs.setString('last_open_date', todayKey);
+    if (mounted) setState(() => _currentStreak = streak);
+  }
+
+  // --- 2. CARRY FORWARD DIALOG ---
+  Future<void> _showCarryForwardDialog(List<Task> pendingTasks) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Plan Your Day"),
+        content: Text(
+            "You have ${pendingTasks.length} unfinished tasks from previous days.\n\nMove them to today?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _saveTasks();
+              Navigator.pop(context);
+            },
+            child: const Text("Discard", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final now = DateTime.now();
+              setState(() {
+                for (var task in pendingTasks) {
+                  task.date = now;
+                  _tasks.add(task);
+                }
+              });
+              _saveTasks();
+              Navigator.pop(context);
+            },
+            child: const Text("Carry Forward"),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _saveTasks() async {
@@ -107,23 +152,175 @@ class _TaskScreenState extends State<TaskScreen> {
     }
   }
 
-  void _addTask() {
-    if (_taskController.text.trim().isNotEmpty) {
+  // --- 3. ADD TASK ---
+  void _addTask(String title, String note, TaskEffort effort) {
+    if (title.trim().isNotEmpty) {
       setState(() {
-        _tasks.add(Task(title: _taskController.text.trim()));
+        _tasks.add(Task(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: title.trim(),
+          date: DateTime.now(),
+          note: note.trim(),
+          effort: effort,
+        ));
       });
       _saveTasks();
-      _taskController.clear();
-      Navigator.of(context).pop();
     }
   }
 
-  // 2. NEW COMPLETION CHECKER
-  Future<void> _checkDailyCompletion() async {
-    // 1. Safety Checks
-    if (_tasks.isEmpty) return;
+  void _showAddTaskSheet() {
+    String title = "";
+    String note = "";
+    TaskEffort selectedEffort = TaskEffort.medium;
 
-    // 2. Are ALL tasks done?
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                top: 20,
+                left: 20,
+                right: 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("New Task",
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  TextField(
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: "e.g., Solve 20 MCQs",
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => title = val,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: "Add a note (optional)",
+                      prefixIcon: Icon(Icons.notes),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => note = val,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text("Effort Level:",
+                      style: TextStyle(fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildEffortChip(TaskEffort.quick, selectedEffort,
+                          (val) => setSheetState(() => selectedEffort = val)),
+                      _buildEffortChip(TaskEffort.medium, selectedEffort,
+                          (val) => setSheetState(() => selectedEffort = val)),
+                      _buildEffortChip(TaskEffort.deep, selectedEffort,
+                          (val) => setSheetState(() => selectedEffort = val)),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        if (title.isNotEmpty) {
+                          _addTask(title, note, selectedEffort);
+                          Navigator.pop(context);
+                        }
+                      },
+                      child: const Text("Add Task"),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- FIX: VISUAL BUG FIX HERE ---
+  Widget _buildEffortChip(
+      TaskEffort value, TaskEffort groupValue, Function(TaskEffort) onSelect) {
+    String label = value == TaskEffort.quick
+        ? "Quick"
+        : value == TaskEffort.medium
+            ? "Medium"
+            : "Deep Focus";
+    Color color = value == TaskEffort.quick
+        ? Colors.amber
+        : value == TaskEffort.medium
+            ? Colors.blue
+            : Colors.deepPurple;
+    bool isSelected = value == groupValue;
+
+    // Detect Dark Mode
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      selectedColor: color.withOpacity(0.2),
+      checkmarkColor: color,
+
+      // FIX: Use lighter text for unselected state in Dark Mode
+      labelStyle: TextStyle(
+          color:
+              isSelected ? color : (isDark ? Colors.grey[300] : Colors.black87),
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+
+      // FIX: Adjust border color for visibility in Dark Mode
+      side: isSelected
+          ? BorderSide.none
+          : BorderSide(color: isDark ? Colors.grey[700]! : Colors.grey[400]!),
+
+      onSelected: (_) => onSelect(value),
+    );
+  }
+
+  // --- 4. TOGGLE & UNDO ---
+  void _toggleTask(int index) {
+    final task = _tasks[index];
+    setState(() {
+      task.isCompleted = !task.isCompleted;
+    });
+    _saveTasks();
+    _checkDailyCompletion();
+
+    if (task.isCompleted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Task completed"),
+          action: SnackBarAction(
+            label: "Undo",
+            onPressed: () {
+              setState(() {
+                task.isCompleted = false;
+              });
+              _saveTasks();
+            },
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _checkDailyCompletion() async {
+    if (_tasks.isEmpty) return;
     final bool allDone = _tasks.every((t) => t.isCompleted);
 
     if (allDone) {
@@ -131,44 +328,26 @@ class _TaskScreenState extends State<TaskScreen> {
         final prefs = await SharedPreferences.getInstance();
         final String? lastCompletionDate =
             prefs.getString('last_completion_date');
-
-        final DateTime now = DateTime.now();
+        final now = DateTime.now();
         final String todayKey = "${now.year}-${now.month}-${now.day}";
 
-        // 3. Prevent Double Counting
         if (lastCompletionDate != todayKey) {
-          // INCREMENT STREAK!
           final int newStreak = _currentStreak + 1;
           await prefs.setInt('current_streak', newStreak);
           await prefs.setString('last_completion_date', todayKey);
 
-          if (!mounted) return; // FIX: Ensure widget exists before setState
-          setState(() {
-            _currentStreak = newStreak;
-          });
+          if (!mounted) return;
+          setState(() => _currentStreak = newStreak);
 
-          // Optional: Celebration
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("🎉 Daily Goal Complete! Streak Increased!"),
-            ),
+                content: Text("🎉 Daily Goal Complete! Streak Increased!")),
           );
         }
       } catch (e) {
         debugPrint("Error checking daily completion: $e");
       }
     }
-  }
-
-  // 3. UPDATED TOGGLE METHOD
-  void _toggleTask(int index) {
-    setState(() {
-      _tasks[index].isCompleted = !_tasks[index].isCompleted;
-    });
-    _saveTasks();
-
-    // TRIGGER THE CHECK IMMEDIATELY
-    _checkDailyCompletion();
   }
 
   void _deleteTask(int index) {
@@ -178,64 +357,24 @@ class _TaskScreenState extends State<TaskScreen> {
     _saveTasks();
   }
 
-  void _showAddTaskDialog() {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Dismiss',
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 300),
-      pageBuilder: (context, anim1, anim2) => Container(),
-      transitionBuilder: (context, anim1, anim2, child) {
-        // Fix: Use Theme dialog background
-        return ScaleTransition(
-          scale: CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
-          child: AlertDialog(
-            title: const Text('Add New Task'),
-            content: SingleChildScrollView(
-              child: TextField(
-                controller: _taskController,
-                decoration:
-                    const InputDecoration(hintText: 'e.g., Solve 20 MCQs'),
-                autofocus: true,
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _taskController.clear();
-                  Navigator.of(context).pop();
-                },
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(onPressed: _addTask, child: const Text('Add')),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _taskController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    _tasks.sort((a, b) => a.isCompleted == b.isCompleted
+        ? 0
+        : a.isCompleted
+            ? 1
+            : -1);
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(
-          'Daily Tasks',
-          style: TextStyle(
-              color: theme.textTheme.bodyLarge?.color,
-              fontWeight: FontWeight.bold),
-        ),
+        title: Text('Daily Tasks',
+            style: TextStyle(
+                color: theme.textTheme.bodyLarge?.color,
+                fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
@@ -248,7 +387,6 @@ class _TaskScreenState extends State<TaskScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  // FIX: Use opacity for dark mode compatibility
                   color: Colors.orange.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.orange.withOpacity(0.3)),
@@ -263,17 +401,19 @@ class _TaskScreenState extends State<TaskScreen> {
           )
         ],
       ),
-      body: _tasks.isEmpty
-          ? _buildEmptyState(theme)
-          : ListView.builder(
-              padding: const EdgeInsets.only(top: 10, bottom: 80),
-              itemCount: _tasks.length,
-              itemBuilder: (context, index) {
-                return _buildTaskCard(_tasks[index], index, theme, isDark);
-              },
-            ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _tasks.isEmpty
+              ? _buildEmptyState(theme)
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
+                  itemCount: _tasks.length,
+                  itemBuilder: (context, index) {
+                    return _buildTaskCard(_tasks[index], index, theme, isDark);
+                  },
+                ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddTaskDialog,
+        onPressed: _showAddTaskSheet,
         backgroundColor: Colors.blue,
         icon: const Icon(Icons.add, color: Colors.white),
         label: const Text("New Task", style: TextStyle(color: Colors.white)),
@@ -289,7 +429,6 @@ class _TaskScreenState extends State<TaskScreen> {
           Container(
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
-              // FIX: Use opacity instead of .shade50
               color: Colors.blue.withOpacity(0.1),
               shape: BoxShape.circle,
             ),
@@ -298,7 +437,7 @@ class _TaskScreenState extends State<TaskScreen> {
           ),
           const SizedBox(height: 20),
           Text(
-            'No tasks for today',
+            'Ready to focus?',
             style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -306,7 +445,7 @@ class _TaskScreenState extends State<TaskScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'Tap the "+ New Task" button\nto start your daily goals!',
+            'Add a task to start your streak!',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16, color: Colors.grey[600]),
           ),
@@ -316,64 +455,109 @@ class _TaskScreenState extends State<TaskScreen> {
   }
 
   Widget _buildTaskCard(Task task, int index, ThemeData theme, bool isDark) {
-    // FIX: Dynamic colors based on state and theme
     final cardColor = task.isCompleted
         ? (isDark ? Colors.grey[900] : Colors.grey[100])
         : theme.cardColor;
-
     final textColor =
         task.isCompleted ? Colors.grey : theme.textTheme.bodyLarge?.color;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(
-                isDark ? 0.3 : 0.05), // Darker shadow for dark mode
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    IconData effortIcon;
+    Color effortColor;
+    String effortText;
+    switch (task.effort) {
+      case TaskEffort.quick:
+        effortIcon = Icons.bolt;
+        effortColor = Colors.amber;
+        effortText = "Quick";
+        break;
+      case TaskEffort.medium:
+        effortIcon = Icons.timer;
+        effortColor = Colors.blue;
+        effortText = "Medium";
+        break;
+      case TaskEffort.deep:
+        effortIcon = Icons.psychology;
+        effortColor = Colors.deepPurple;
+        effortText = "Deep";
+        break;
+    }
+
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: cardColor,
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         leading: Transform.scale(
-          scale: 1.2,
+          scale: 1.1,
           child: Checkbox(
             value: task.isCompleted,
             onChanged: (value) => _toggleTask(index),
             activeColor: Colors.blue,
-            // Ensure checkbox border is visible in dark mode
+            shape: const CircleBorder(),
             side: BorderSide(
                 color: isDark ? Colors.grey : Colors.black54, width: 2),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
           ),
         ),
-        title: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 300),
+        title: Text(
+          task.title,
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w500,
             color: textColor,
-            fontFamily: 'Poppins', // Explicitly keep font consistent
+            fontFamily: 'Poppins',
             decoration: task.isCompleted
                 ? TextDecoration.lineThrough
                 : TextDecoration.none,
-            decorationColor: Colors.grey,
-            decorationThickness: 2.0,
           ),
-          child: Text(task.title),
         ),
-        trailing: IconButton(
-          icon: Icon(Icons.delete_outline, color: Colors.grey[400]),
-          onPressed: () => _deleteTask(index),
+        subtitle: Row(
+          children: [
+            Icon(effortIcon, size: 14, color: effortColor),
+            const SizedBox(width: 4),
+            Text(effortText,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: effortColor,
+                    fontWeight: FontWeight.bold)),
+            if (task.note.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              const Icon(Icons.notes, size: 14, color: Colors.grey),
+            ]
+          ],
         ),
+        trailing: task.note.isNotEmpty
+            ? const Icon(Icons.expand_more, color: Colors.grey)
+            : IconButton(
+                icon: Icon(Icons.delete_outline, color: Colors.grey[400]),
+                onPressed: () => _deleteTask(index),
+              ),
+        children: task.note.isNotEmpty
+            ? [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          task.note,
+                          style: TextStyle(
+                              color: Colors.grey[600],
+                              fontStyle: FontStyle.italic),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline,
+                            color: Colors.redAccent, size: 20),
+                        onPressed: () => _deleteTask(index),
+                      ),
+                    ],
+                  ),
+                )
+              ]
+            : [],
       ),
     );
   }
