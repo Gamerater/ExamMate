@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // REQUIRED for HapticFeedback
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:ui'; // Required for FontFeature
+import 'dart:ui';
 import 'package:audioplayers/audioplayers.dart';
+import '../models/task.dart';
 
 class PomodoroScreen extends StatefulWidget {
   const PomodoroScreen({super.key});
@@ -29,23 +31,24 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   // Feedback Preferences
   bool _enableSound = true;
   bool _enableVibration = true;
-
-  // Feedback State Control
-  bool _cancelFeedback = false; // NEW: Controls loop termination
+  bool _cancelFeedback = false;
 
   // Audio Player
   final AudioPlayer _audioPlayer = AudioPlayer();
 
+  // Task Linking
+  Task? _linkedTask;
+  List<Task> _todaysTasks = [];
+
   @override
   void initState() {
     super.initState();
-    // Initialize controller (default 25 mins)
+    // Initialize controller
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(minutes: 25),
     );
 
-    // Listen for timer finish
     _controller.addStatusListener((status) {
       if (status == AnimationStatus.dismissed) {
         _handleTimerComplete();
@@ -53,72 +56,101 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     });
 
     _loadSettings();
+    _loadTodaysTasks();
   }
 
   @override
   void dispose() {
-    _stopFeedback(); // Ensure everything stops on exit
+    _stopFeedback();
     _controller.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
 
-  // --- LOGIC: TIMER COMPLETION ---
+  // --- LOGIC: TASKS ---
+  Future<void> _loadTodaysTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? tasksString = prefs.getString('tasks_data');
+    if (tasksString != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(tasksString);
+        final allTasks = decoded.map((e) => Task.fromMap(e)).toList();
+        final now = DateTime.now();
+        final todayStart = DateTime(now.year, now.month, now.day);
+
+        setState(() {
+          _todaysTasks = allTasks.where((t) {
+            final tDate = DateTime(t.date.year, t.date.month, t.date.day);
+            return !t.isCompleted &&
+                (tDate.isAtSameMomentAs(todayStart) ||
+                    tDate.isAfter(todayStart));
+          }).toList();
+        });
+      } catch (e) {
+        debugPrint("Error loading tasks: $e");
+      }
+    }
+  }
+
+  Future<void> _updateTaskProgress(bool markCompleted) async {
+    if (_linkedTask == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final String? tasksString = prefs.getString('tasks_data');
+
+    if (tasksString != null) {
+      final List<dynamic> decoded = jsonDecode(tasksString);
+      List<Task> allTasks = decoded.map((e) => Task.fromMap(e)).toList();
+
+      final index = allTasks.indexWhere((t) => t.id == _linkedTask!.id);
+      if (index != -1) {
+        allTasks[index].sessionsCompleted += 1;
+        if (markCompleted) allTasks[index].isCompleted = true;
+
+        final String data =
+            json.encode(allTasks.map((e) => e.toMap()).toList());
+        await prefs.setString('tasks_data', data);
+        _loadTodaysTasks();
+      }
+    }
+  }
+
+  // --- LOGIC: TIMER & FEEDBACK ---
   void _handleTimerComplete() {
     setState(() => _isRunning = false);
     _triggerFeedback();
     _showCompletionDialog();
   }
 
-  // --- LOGIC: FEEDBACK (Sound & Vibration) ---
   Future<void> _triggerFeedback() async {
-    // Reset cancellation flag so feedback can run
     _cancelFeedback = false;
-
-    // 1. Sound
     if (_enableSound) {
       try {
         await _audioPlayer.stop();
-        // Ensure 'assets/sounds/bell.mp3' exists
         await _audioPlayer.play(AssetSource('sounds/bell.mp3'));
       } catch (e) {
         debugPrint("Error playing sound: $e");
       }
     }
-
-    // 2. Vibration (Built-in HapticFeedback)
     if (_enableVibration) {
-      // We loop the vibration to make it noticeable (like an alarm)
-      // Loop runs 4 times or until cancelled
       for (int i = 0; i < 4; i++) {
-        // SAFETY CHECK: Stop loop if user pressed Reset or left screen
         if (_cancelFeedback || !mounted) break;
-
         try {
-          // .vibrate() is stronger/longer than .impact()
           await HapticFeedback.vibrate();
-        } catch (e) {
-          debugPrint("Haptic error: $e");
-        }
-
-        // Wait between pulses (800ms)
+        } catch (_) {}
         if (_cancelFeedback || !mounted) break;
         await Future.delayed(const Duration(milliseconds: 800));
       }
     }
   }
 
-  // FIX: Immediate Stop
   Future<void> _stopFeedback() async {
-    _cancelFeedback = true; // Signal vibration loop to break
+    _cancelFeedback = true;
     try {
-      await _audioPlayer.stop(); // Kill sound
-    } catch (e) {
-      // Ignore errors
-    }
+      await _audioPlayer.stop();
+    } catch (_) {}
   }
 
-  // --- LOGIC: SETTINGS & PERSISTENCE ---
+  // --- LOGIC: SETTINGS ---
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
@@ -132,12 +164,11 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     }
   }
 
-  Future<void> _saveSettings({
-    required int work,
-    required int breakTime,
-    required bool sound,
-    required bool vibration,
-  }) async {
+  Future<void> _saveSettings(
+      {required int work,
+      required int breakTime,
+      required bool sound,
+      required bool vibration}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('pomo_work_minutes', work);
     await prefs.setInt('pomo_break_minutes', breakTime);
@@ -150,12 +181,10 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         _breakDuration = breakTime;
         _enableSound = sound;
         _enableVibration = vibration;
-
-        if (_isRunning) {
+        if (_isRunning)
           _resetTimer();
-        } else {
+        else
           _updateControllerDuration();
-        }
       });
     }
   }
@@ -166,7 +195,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     _controller.value = 1.0;
   }
 
-  // --- LOGIC: TIMER CONTROL ---
   void _toggleTimer() {
     if (_controller.isAnimating) {
       _controller.stop();
@@ -179,7 +207,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
   }
 
   void _resetTimer() {
-    _stopFeedback(); // <--- STOP ALERT IMMEDIATELY
+    _stopFeedback();
     _controller.stop();
     _controller.value = 1.0;
     setState(() => _isRunning = false);
@@ -190,18 +218,15 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       _switchMode(isWork);
       return;
     }
-
     final bool? shouldSwitch = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Stop Timer?"),
-        content: const Text(
-            "The timer is currently running. Switching modes will stop and reset it."),
+        content: const Text("Switching modes will reset the timer."),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancel"),
-          ),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -211,7 +236,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         ],
       ),
     );
-
     if (shouldSwitch == true) {
       _resetTimer();
       _switchMode(isWork);
@@ -226,42 +250,102 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     });
   }
 
-  // --- DIALOGS ---
+  // --- UI COMPONENTS ---
   void _showCompletionDialog() {
+    if (_isWorkMode && _linkedTask != null) {
+      _updateTaskProgress(false);
+    }
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(_isWorkMode ? "Great Focus!" : "Break Over!"),
-        content: Text(_isWorkMode
-            ? "Time to take a break?"
-            : "Ready to get back to work?"),
-        actions: [
-          TextButton(
-            onPressed: () {
-              _stopFeedback(); // Stop alert on action
-              Navigator.pop(context);
-              _switchMode(!_isWorkMode);
-            },
-            child: const Text("Switch Mode"),
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(_isWorkMode ? "Great Focus!" : "Break Over!"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_isWorkMode
+                  ? "Time to take a break?"
+                  : "Ready to get back to work?"),
+              if (_isWorkMode && _linkedTask != null) ...[
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      Text("You were working on:",
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.blue[800])),
+                      const SizedBox(height: 4),
+                      Text(_linkedTask!.title,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              _stopFeedback();
+                              Navigator.pop(context);
+                              _switchMode(!_isWorkMode);
+                            },
+                            child: const Text("Not Done"),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green),
+                            onPressed: () {
+                              _updateTaskProgress(true);
+                              _stopFeedback();
+                              Navigator.pop(context);
+                              _switchMode(!_isWorkMode);
+                            },
+                            child: const Text("Mark Done",
+                                style: TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
+                )
+              ]
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              _stopFeedback(); // Stop alert on action
-              Navigator.pop(context);
-            },
-            child: const Text("Stay Here"),
-          ),
-        ],
-      ),
+          actions: (_isWorkMode && _linkedTask != null)
+              ? null
+              : [
+                  TextButton(
+                    onPressed: () {
+                      _stopFeedback();
+                      Navigator.pop(context);
+                      _switchMode(!_isWorkMode);
+                    },
+                    child: const Text("Switch Mode"),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      _stopFeedback();
+                      Navigator.pop(context);
+                    },
+                    child: const Text("Stay Here"),
+                  ),
+                ],
+        );
+      },
     );
   }
 
+  // --- FIXED SETTINGS DIALOG (Contrast Fix) ---
   void _showSettingsDialog() {
+    // Temp vars
     int tempWork = _workDuration;
     int tempBreak = _breakDuration;
     bool tempSound = _enableSound;
     bool tempVibration = _enableVibration;
-
     bool isSmartMode = false;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -270,165 +354,96 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            Future<void> pickDuration(bool forWork) async {
-              final initialMinutes = forWork ? tempWork : tempBreak;
-              final initialTime = TimeOfDay(
-                  hour: initialMinutes ~/ 60, minute: initialMinutes % 60);
-
-              final TimeOfDay? picked = await showTimePicker(
-                context: context,
-                initialTime: initialTime,
-                initialEntryMode: TimePickerEntryMode.input,
-                helpText:
-                    forWork ? "SELECT WORK DURATION" : "SELECT BREAK DURATION",
-                hourLabelText: "Hours",
-                minuteLabelText: "Minutes",
-                builder: (context, child) {
-                  return MediaQuery(
-                    data: MediaQuery.of(context)
-                        .copyWith(alwaysUse24HourFormat: true),
-                    child: child!,
-                  );
-                },
-              );
-
-              if (picked != null) {
-                setStateDialog(() {
-                  int totalMinutes = (picked.hour * 60) + picked.minute;
-                  if (totalMinutes < 1) totalMinutes = 1;
-
-                  if (forWork) {
-                    tempWork = totalMinutes;
-                    if (isSmartMode) {
-                      tempBreak = (tempWork / 5).round();
-                      if (tempBreak < 1) tempBreak = 1;
-                    }
-                  } else {
-                    tempBreak = totalMinutes;
-                  }
-                });
-              }
-            }
-
             return AlertDialog(
               title: const Text("Timer Settings"),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSmartMode
-                            ? Colors.blue.withOpacity(0.1)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                        border: isSmartMode
-                            ? Border.all(color: Colors.blue.withOpacity(0.3))
-                            : Border.all(color: Colors.grey.withOpacity(0.2)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.auto_awesome,
-                                  size: 20,
-                                  color:
-                                      isSmartMode ? Colors.blue : Colors.grey),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text("Smart Break",
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                          color: isSmartMode
-                                              ? Colors.blue
-                                              : (isDark
-                                                  ? Colors.grey[300]
-                                                  : Colors.grey[700]))),
-                                  if (isSmartMode)
-                                    Text("1:5 Ratio (Auto)",
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.blue[300])),
-                                ],
-                              ),
-                            ],
-                          ),
-                          Switch(
-                            value: isSmartMode,
-                            activeColor: Colors.blue,
-                            onChanged: (val) {
-                              setStateDialog(() {
-                                isSmartMode = val;
-                                if (val) {
-                                  tempBreak = (tempWork / 5).round();
-                                  if (tempBreak < 1) tempBreak = 1;
-                                }
-                              });
-                            },
-                          ),
-                        ],
-                      ),
+                    // Smart Break Toggle
+                    SwitchListTile(
+                      title: const Text("Smart Break"),
+                      subtitle: const Text("1:5 Ratio (Auto)"),
+                      value: isSmartMode,
+                      onChanged: (val) {
+                        setStateDialog(() {
+                          isSmartMode = val;
+                          if (val)
+                            tempBreak = (tempWork / 5).round().clamp(1, 60);
+                        });
+                      },
                     ),
-                    const SizedBox(height: 24),
-                    _buildDurationTile(
-                        label: "Work Duration",
-                        minutes: tempWork,
-                        icon: Icons.work,
-                        color: workColor,
-                        onTap: () => pickDuration(true)),
                     const SizedBox(height: 16),
-                    Opacity(
-                      opacity: isSmartMode ? 0.5 : 1.0,
-                      child: _buildDurationTile(
-                          label: isSmartMode ? "Auto Break" : "Break Duration",
-                          minutes: tempBreak,
-                          icon: Icons.coffee,
-                          color: breakColor,
-                          onTap:
-                              isSmartMode ? null : () => pickDuration(false)),
+
+                    // Work Duration Field
+                    TextField(
+                      controller:
+                          TextEditingController(text: tempWork.toString()),
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                          labelText: "Study Duration",
+                          border: OutlineInputBorder()),
+                      onChanged: (val) {
+                        int? v = int.tryParse(val);
+                        if (v != null) {
+                          tempWork = v;
+                          if (isSmartMode) {
+                            setStateDialog(() => tempBreak =
+                                (tempWork / 5).round().clamp(1, 60));
+                          }
+                        }
+                      },
                     ),
-                    const SizedBox(height: 24),
-                    const Divider(),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 16),
+
+                    // Break Duration Field (FIXED CONTRAST)
+                    TextField(
+                      // Force controller text to update when Smart Mode changes
+                      controller:
+                          TextEditingController(text: tempBreak.toString()),
+                      enabled: !isSmartMode,
+                      style: TextStyle(
+                          // FIX: If Smart Mode (Disabled), force readable color
+                          color: isSmartMode
+                              ? (isDark
+                                  ? Colors.black87
+                                  : Colors
+                                      .black87) // Always dark text on light background
+                              : null // Default theme color otherwise
+                          ),
+                      decoration: InputDecoration(
+                        labelText: "Break Duration",
+                        border: const OutlineInputBorder(),
+                        filled: isSmartMode,
+                        // Light background to indicate 'Auto' state
+                        fillColor: isSmartMode ? Colors.grey[200] : null,
+                      ),
+                    ),
+
+                    const Divider(height: 32),
                     SwitchListTile(
-                      title: const Text("Play Sound"),
-                      subtitle: const Text("When timer ends"),
-                      value: tempSound,
-                      activeColor: Colors.blue,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) => setStateDialog(() => tempSound = val),
-                    ),
+                        title: const Text("Sound"),
+                        value: tempSound,
+                        onChanged: (v) => setStateDialog(() => tempSound = v)),
                     SwitchListTile(
-                      title: const Text("Vibrate"),
-                      subtitle: const Text("When timer ends"),
-                      value: tempVibration,
-                      activeColor: Colors.blue,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) =>
-                          setStateDialog(() => tempVibration = val),
-                    ),
+                        title: const Text("Vibrate"),
+                        value: tempVibration,
+                        onChanged: (v) =>
+                            setStateDialog(() => tempVibration = v)),
                   ],
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Cancel"),
-                ),
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("Cancel")),
                 ElevatedButton(
                   onPressed: () {
                     _saveSettings(
-                      work: tempWork,
-                      breakTime: tempBreak,
-                      sound: tempSound,
-                      vibration: tempVibration,
-                    );
+                        work: tempWork,
+                        breakTime: tempBreak,
+                        sound: tempSound,
+                        vibration: tempVibration);
                     Navigator.pop(context);
                   },
                   child: const Text("Save"),
@@ -438,59 +453,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
           },
         );
       },
-    );
-  }
-
-  Widget _buildDurationTile({
-    required String label,
-    required int minutes,
-    required IconData icon,
-    required Color color,
-    VoidCallback? onTap,
-  }) {
-    final hours = minutes ~/ 60;
-    final mins = minutes % 60;
-    final timeString = "${hours}h ${mins}m";
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.withOpacity(0.3)),
-          borderRadius: BorderRadius.circular(12),
-          color: isDark ? Colors.grey[800] : Colors.white,
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: color, size: 20),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(label,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                  Text(timeString,
-                      style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-            if (onTap != null)
-              const Icon(Icons.edit, size: 16, color: Colors.grey),
-          ],
-        ),
-      ),
     );
   }
 
@@ -509,32 +471,21 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(
-          "Pomodoro Timer",
-          style: TextStyle(
-              color: theme.textTheme.bodyLarge?.color,
-              fontWeight: FontWeight.bold),
-        ),
+        title: Text("Pomodoro Timer",
+            style: TextStyle(
+                color: theme.textTheme.bodyLarge?.color,
+                fontWeight: FontWeight.bold)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
         iconTheme: theme.iconTheme,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            } else {
-              Navigator.pushReplacementNamed(context, '/home');
-            }
-          },
+          onPressed: () => Navigator.of(context).pop(),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: _showSettingsDialog,
-            tooltip: "Settings",
-          )
+              icon: const Icon(Icons.settings), onPressed: _showSettingsDialog)
         ],
       ),
       body: Padding(
@@ -542,6 +493,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Mode Toggles
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
@@ -555,66 +507,97 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 ],
               ),
             ),
-            const Spacer(),
-            GestureDetector(
-              onTap: _showSettingsDialog,
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  final count =
-                      _controller.duration!.inSeconds * _controller.value;
-                  return Stack(
-                    alignment: Alignment.center,
+
+            const SizedBox(height: 30),
+
+            // Linked Task Indicator
+            if (_isWorkMode)
+              InkWell(
+                onTap: _isRunning ? null : _showTaskSelector,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _linkedTask != null
+                        ? currentColor.withOpacity(0.1)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color:
+                            _linkedTask != null ? currentColor : Colors.grey),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      SizedBox(
-                        width: 250,
-                        height: 250,
-                        child: CircularProgressIndicator(
-                          value: _controller.value,
-                          strokeWidth: 15,
-                          color: currentColor,
-                          backgroundColor: currentColor.withOpacity(0.1),
-                          strokeCap: StrokeCap.round,
-                        ),
-                      ),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _formatTime(count.ceil()),
-                            style: TextStyle(
-                              fontSize: 60,
-                              fontWeight: FontWeight.bold,
-                              color: theme.textTheme.bodyLarge?.color,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures()
-                              ],
-                            ),
-                          ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.auto_awesome,
-                                  size: 14, color: Colors.grey[500]),
-                              const SizedBox(width: 4),
-                              Text(
-                                _isWorkMode ? "Focus" : "Rest",
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: currentColor,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                      Icon(
+                          _linkedTask != null
+                              ? Icons.check_circle
+                              : Icons.add_circle_outline,
+                          color:
+                              _linkedTask != null ? currentColor : Colors.grey),
+                      const SizedBox(width: 8),
+                      Text(_linkedTask?.title ?? "Link a Task",
+                          style: TextStyle(
+                              color: _linkedTask != null
+                                  ? currentColor
+                                  : Colors.grey)),
                     ],
-                  );
-                },
+                  ),
+                ),
               ),
-            ),
+
             const Spacer(),
+
+            // --- RESTORED TIMER UI (Fixes Spinner Bug) ---
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                final count =
+                    _controller.duration!.inSeconds * _controller.value;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox(
+                      width: 280,
+                      height: 280,
+                      child: CircularProgressIndicator(
+                        value: _controller.value,
+                        strokeWidth: 20,
+                        color: currentColor,
+                        backgroundColor: currentColor.withOpacity(0.1),
+                        strokeCap: StrokeCap.round,
+                      ),
+                    ),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _formatTime(count.ceil()),
+                          style: TextStyle(
+                            fontSize: 64,
+                            fontWeight: FontWeight.bold,
+                            color: theme.textTheme.bodyLarge?.color,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                        Text(
+                          _isWorkMode ? "Focus Time" : "Rest Time",
+                          style: TextStyle(
+                              fontSize: 18,
+                              color: currentColor,
+                              fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
+
+            const Spacer(),
+
+            // Controls
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -634,17 +617,13 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: currentColor.withOpacity(0.4),
-                          blurRadius: 15,
-                          offset: const Offset(0, 5),
-                        ),
+                            color: currentColor.withOpacity(0.4),
+                            blurRadius: 15,
+                            offset: const Offset(0, 5)),
                       ],
                     ),
-                    child: Icon(
-                      _isRunning ? Icons.pause : Icons.play_arrow,
-                      color: Colors.white,
-                      size: 40,
-                    ),
+                    child: Icon(_isRunning ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white, size: 40),
                   ),
                 ),
                 const SizedBox(width: 80),
@@ -654,6 +633,42 @@ class _PomodoroScreenState extends State<PomodoroScreen>
           ],
         ),
       ),
+    );
+  }
+
+  void _showTaskSelector() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          height: 400,
+          child: Column(
+            children: [
+              const Text("Select a Task",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _todaysTasks.length,
+                  itemBuilder: (context, index) {
+                    final task = _todaysTasks[index];
+                    return ListTile(
+                      title: Text(task.title),
+                      onTap: () {
+                        setState(() => _linkedTask = task);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -674,9 +689,8 @@ class _PomodoroScreenState extends State<PomodoroScreen>
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[600],
-            fontWeight: FontWeight.bold,
-          ),
+              color: isSelected ? Colors.white : Colors.grey[600],
+              fontWeight: FontWeight.bold),
         ),
       ),
     );

@@ -1,20 +1,24 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 
-// NEW: Enum for Effort Level
+// Enum for Effort Level
 enum TaskEffort { quick, medium, deep }
 
 class Task {
   // --- CORE FIELDS ---
-  String id; // NEW: Unique ID for safer deletes/updates
+  String id;
   String title;
   bool isCompleted;
-  DateTime date; // NEW: Required for "Carry Forward" logic
+  DateTime date;
 
   // --- NEW FEATURES ---
-  String note; // NEW: For extra details
-  TaskEffort effort; // NEW: Replaces 'priority' logic visually
+  String note;
+  TaskEffort effort;
 
-  // --- EXISTING FIELDS (Kept for compatibility) ---
+  // NEW: Track focus sessions for this task (Simple counter)
+  int sessionsCompleted;
+
+  // --- EXISTING FIELDS ---
   String label;
   int colorValue;
 
@@ -25,11 +29,11 @@ class Task {
     required this.date,
     this.note = '',
     this.effort = TaskEffort.medium,
+    this.sessionsCompleted = 0, // Default 0
     this.label = 'General',
-    this.colorValue = 0xFF2196F3, // Default Blue
+    this.colorValue = 0xFF2196F3,
   });
 
-  // Convert to Map (Saving)
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -37,46 +41,38 @@ class Task {
       'isCompleted': isCompleted,
       'date': date.toIso8601String(),
       'note': note,
-      'effort': effort.index, // Save Enum as int (0, 1, 2)
-      // Save existing fields
+      'effort': effort.index,
+      'sessionsCompleted': sessionsCompleted, // Save counter
       'label': label,
       'colorValue': colorValue,
     };
   }
 
-  // Convert from Map (Loading)
   factory Task.fromMap(Map<String, dynamic> map) {
-    // Helper: Smartly map old 'priority' strings to new 'effort' enum
     TaskEffort parseEffort(dynamic mapVal, String? oldPriority) {
       if (mapVal != null && mapVal is int) {
         return TaskEffort.values[mapVal];
       }
-      // Migration Fallback: Map old Priority strings to new Effort
       if (oldPriority == 'High') return TaskEffort.deep;
       if (oldPriority == 'Low') return TaskEffort.quick;
       return TaskEffort.medium;
     }
 
     return Task(
-      // FIX 1: Generate ID if missing (for old tasks)
       id: map['id']?.toString() ??
           DateTime.now().millisecondsSinceEpoch.toString(),
-
       title: map['title']?.toString() ?? 'Untitled Task',
-
       isCompleted: map['isCompleted'] == true,
-
-      // FIX 2: If date is missing (old tasks), assume they belong to Today
       date: map['date'] != null
           ? DateTime.tryParse(map['date'].toString()) ?? DateTime.now()
           : DateTime.now(),
-
       note: map['note']?.toString() ?? '',
-
-      // FIX 3: Smart Effort Mapping
       effort: parseEffort(map['effort'], map['priority']?.toString()),
 
-      // Existing fields preserved
+      // Load sessions (Default to 0 if missing)
+      sessionsCompleted:
+          map['sessionsCompleted'] is int ? map['sessionsCompleted'] : 0,
+
       label: map['label']?.toString() ?? 'General',
       colorValue: (map['colorValue'] is int) ? map['colorValue'] : 0xFF2196F3,
     );
@@ -84,4 +80,48 @@ class Task {
 
   String toJson() => json.encode(toMap());
   factory Task.fromJson(String source) => Task.fromMap(json.decode(source));
+}
+
+// Find the _buildEffortChip method and replace it with this:
+Widget _buildEffortChip(
+  BuildContext context,
+  TaskEffort value,
+  TaskEffort groupValue,
+  Function(TaskEffort) onSelect,
+) {
+  String label = value == TaskEffort.quick
+      ? "Quick"
+      : value == TaskEffort.medium
+          ? "Medium"
+          : "Deep Focus";
+
+  Color color = value == TaskEffort.quick
+      ? Colors.amber
+      : value == TaskEffort.medium
+          ? Colors.blue
+          : Colors.deepPurple;
+
+  bool isSelected = value == groupValue;
+
+  // Detect Dark Mode
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+
+  return FilterChip(
+    label: Text(label),
+    selected: isSelected,
+    selectedColor: color.withOpacity(0.2),
+    checkmarkColor: color,
+    // FIX: Use lighter text for unselected state in Dark Mode
+    labelStyle: TextStyle(
+      color: isSelected
+          ? color
+          : (isDark ? Colors.grey[300] : Colors.black87), // <--- VISIBILITY FIX
+      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+    ),
+    // FIX: Adjust border color for visibility in Dark Mode
+    side: isSelected
+        ? BorderSide.none
+        : BorderSide(color: isDark ? Colors.grey[700]! : Colors.grey[400]!),
+    onSelected: (_) => onSelect(value),
+  );
 }
