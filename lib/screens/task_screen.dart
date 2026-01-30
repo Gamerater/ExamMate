@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/task.dart'; // Ensure this model has id, date, note, effort
+import '../models/task.dart';
 
 class TaskScreen extends StatefulWidget {
   const TaskScreen({super.key});
@@ -21,12 +21,10 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
-  // --- 1. IMPROVED INIT & CARRY FORWARD LOGIC ---
   Future<void> _loadAndCheckDailyProgress() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // A. Load Tasks
       final String? tasksString = prefs.getString('tasks_data');
       List<Task> allLoadedTasks = [];
 
@@ -40,7 +38,6 @@ class _TaskScreenState extends State<TaskScreen> {
         }
       }
 
-      // B. Filter Tasks (Today vs History)
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
 
@@ -105,7 +102,6 @@ class _TaskScreenState extends State<TaskScreen> {
     if (mounted) setState(() => _currentStreak = streak);
   }
 
-  // --- 2. CARRY FORWARD DIALOG ---
   Future<void> _showCarryForwardDialog(List<Task> pendingTasks) async {
     await showDialog(
       context: context,
@@ -152,7 +148,6 @@ class _TaskScreenState extends State<TaskScreen> {
     }
   }
 
-  // --- 3. ADD TASK ---
   void _addTask(String title, String note, TaskEffort effort) {
     if (title.trim().isNotEmpty) {
       setState(() {
@@ -251,7 +246,7 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- FIX: VISUAL BUG FIX HERE ---
+  // --- FIXED UI VISIBILITY ---
   Widget _buildEffortChip(
       TaskEffort value, TaskEffort groupValue, Function(TaskEffort) onSelect) {
     String label = value == TaskEffort.quick
@@ -266,7 +261,6 @@ class _TaskScreenState extends State<TaskScreen> {
             : Colors.deepPurple;
     bool isSelected = value == groupValue;
 
-    // Detect Dark Mode
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return FilterChip(
@@ -275,13 +269,12 @@ class _TaskScreenState extends State<TaskScreen> {
       selectedColor: color.withOpacity(0.2),
       checkmarkColor: color,
 
-      // FIX: Use lighter text for unselected state in Dark Mode
+      // FIX: Light text color in Dark Mode for unselected state
       labelStyle: TextStyle(
           color:
               isSelected ? color : (isDark ? Colors.grey[300] : Colors.black87),
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
 
-      // FIX: Adjust border color for visibility in Dark Mode
       side: isSelected
           ? BorderSide.none
           : BorderSide(color: isDark ? Colors.grey[700]! : Colors.grey[400]!),
@@ -290,7 +283,6 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- 4. TOGGLE & UNDO ---
   void _toggleTask(int index) {
     final task = _tasks[index];
     setState(() {
@@ -521,6 +513,29 @@ class _TaskScreenState extends State<TaskScreen> {
                     fontSize: 12,
                     color: effortColor,
                     fontWeight: FontWeight.bold)),
+            if (task.sessionsCompleted > 0) ...[
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.deepOrange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.deepOrange.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.local_fire_department,
+                        size: 12, color: Colors.deepOrange),
+                    const SizedBox(width: 2),
+                    Text("${task.sessionsCompleted}",
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.deepOrange)),
+                  ],
+                ),
+              ),
+            ],
             if (task.note.isNotEmpty) ...[
               const SizedBox(width: 8),
               const Icon(Icons.notes, size: 14, color: Colors.grey),

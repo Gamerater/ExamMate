@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 
 // Enum for Effort Level
 enum TaskEffort { quick, medium, deep }
@@ -15,7 +14,7 @@ class Task {
   String note;
   TaskEffort effort;
 
-  // NEW: Track focus sessions for this task (Simple counter)
+  // Track focus sessions (Simple counter)
   int sessionsCompleted;
 
   // --- EXISTING FIELDS ---
@@ -29,7 +28,7 @@ class Task {
     required this.date,
     this.note = '',
     this.effort = TaskEffort.medium,
-    this.sessionsCompleted = 0, // Default 0
+    this.sessionsCompleted = 0,
     this.label = 'General',
     this.colorValue = 0xFF2196F3,
   });
@@ -42,7 +41,7 @@ class Task {
       'date': date.toIso8601String(),
       'note': note,
       'effort': effort.index,
-      'sessionsCompleted': sessionsCompleted, // Save counter
+      'sessionsCompleted': sessionsCompleted,
       'label': label,
       'colorValue': colorValue,
     };
@@ -68,11 +67,8 @@ class Task {
           : DateTime.now(),
       note: map['note']?.toString() ?? '',
       effort: parseEffort(map['effort'], map['priority']?.toString()),
-
-      // Load sessions (Default to 0 if missing)
       sessionsCompleted:
           map['sessionsCompleted'] is int ? map['sessionsCompleted'] : 0,
-
       label: map['label']?.toString() ?? 'General',
       colorValue: (map['colorValue'] is int) ? map['colorValue'] : 0xFF2196F3,
     );
@@ -80,48 +76,4 @@ class Task {
 
   String toJson() => json.encode(toMap());
   factory Task.fromJson(String source) => Task.fromMap(json.decode(source));
-}
-
-// Find the _buildEffortChip method and replace it with this:
-Widget _buildEffortChip(
-  BuildContext context,
-  TaskEffort value,
-  TaskEffort groupValue,
-  Function(TaskEffort) onSelect,
-) {
-  String label = value == TaskEffort.quick
-      ? "Quick"
-      : value == TaskEffort.medium
-          ? "Medium"
-          : "Deep Focus";
-
-  Color color = value == TaskEffort.quick
-      ? Colors.amber
-      : value == TaskEffort.medium
-          ? Colors.blue
-          : Colors.deepPurple;
-
-  bool isSelected = value == groupValue;
-
-  // Detect Dark Mode
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-
-  return FilterChip(
-    label: Text(label),
-    selected: isSelected,
-    selectedColor: color.withOpacity(0.2),
-    checkmarkColor: color,
-    // FIX: Use lighter text for unselected state in Dark Mode
-    labelStyle: TextStyle(
-      color: isSelected
-          ? color
-          : (isDark ? Colors.grey[300] : Colors.black87), // <--- VISIBILITY FIX
-      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-    ),
-    // FIX: Adjust border color for visibility in Dark Mode
-    side: isSelected
-        ? BorderSide.none
-        : BorderSide(color: isDark ? Colors.grey[700]! : Colors.grey[400]!),
-    onSelected: (_) => onSelect(value),
-  );
 }
