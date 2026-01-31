@@ -357,8 +357,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                       onChanged: (val) {
                         setStateDialog(() {
                           isSmartMode = val;
-                          if (val)
+                          if (val) {
                             tempBreak = (tempWork / 5).round().clamp(1, 60);
+                          }
                         });
                       },
                     ),
@@ -566,14 +567,13 @@ class _PomodoroScreenState extends State<PomodoroScreen>
               const SizedBox(height: 12),
               Expanded(
                 child: _todaysTasks.isEmpty
-                    ? Center(
+                    ? const Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.task_alt,
-                                size: 40, color: Colors.grey),
-                            const SizedBox(height: 8),
-                            const Text(
+                            Icon(Icons.task_alt, size: 40, color: Colors.grey),
+                            SizedBox(height: 8),
+                            Text(
                               "No incomplete tasks for today!",
                               style: TextStyle(color: Colors.grey),
                             ),
