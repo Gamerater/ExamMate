@@ -31,7 +31,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // FIX: Check if widget is still mounted before calling setState
     if (!mounted) return;
 
     setState(() {
@@ -72,14 +71,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final notificationService = NotificationService();
 
     if (value) {
-      // 1. Request Permission
       bool granted = await notificationService.requestPermissions();
 
-      // FIX: Check mounted after async permission request
       if (!mounted) return;
 
       if (granted) {
-        // 2. Schedule (Safe Mode with Try-Catch)
         try {
           await notificationService.scheduleDailyReminder(
               _reminderTime.hour, _reminderTime.minute);
@@ -98,16 +94,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         } catch (e) {
           debugPrint("Error scheduling reminder: $e");
-          // Revert toggle if scheduling failed
           if (mounted) setState(() => _isReminderEnabled = false);
         }
       } else {
-        // 3. Denied
         setState(() => _isReminderEnabled = false);
         if (mounted) _showPermissionDeniedDialog();
       }
     } else {
-      // 4. Turn Off (Safe Mode with Try-Catch)
       try {
         await notificationService.cancelNotifications();
       } catch (e) {
@@ -147,7 +140,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await prefs.setInt('reminder_hour', picked.hour);
       await prefs.setInt('reminder_minute', picked.minute);
 
-      // FIX: Check mounted before setState
       if (!mounted) return;
       setState(() => _reminderTime = picked);
 
@@ -207,6 +199,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("Exam date updated!")));
     }
+  }
+
+  // --- RESET LOGIC ---
+  Future<void> _confirmReset() async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Start Fresh?"),
+          content: const Text(
+              "This will clear your daily tasks, streak count, and history.\n\nYour exam goal and settings will be saved.\n\nThis action cannot be undone."),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Reset Everything'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _performReset();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performReset() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Clear specific keys (SAFE RESET)
+    await prefs.remove('tasks_data');
+    await prefs.remove('streak_current');
+    await prefs.remove('streak_best');
+    await prefs.remove('streak_last_date');
+    await prefs.remove('streak_shields');
+    await prefs.remove('streak_history');
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("You have a clean slate. Let's begin again."),
+        backgroundColor: Colors.blueGrey,
+        duration: Duration(seconds: 3),
+      ),
+    );
+
+    // Redirect to home/dashboard to refresh state
+    Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
   }
 
   Future<void> _showConfirmationDialog({
@@ -369,6 +418,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: _toggleTheme,
                   activeThumbColor: Colors.indigo,
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _buildSectionHeader(
+              title: 'Data & Reset', description: 'Manage your progress'),
+          _buildSectionContainer(
+            children: [
+              _buildSettingsTile(
+                icon: Icons.refresh,
+                iconColor: Colors.redAccent,
+                title: 'Reset Tasks & Streak',
+                onTap: _confirmReset,
+                trailing: const Icon(Icons.chevron_right, color: Colors.grey),
               ),
             ],
           ),

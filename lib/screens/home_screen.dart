@@ -16,8 +16,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _rawDifference = 0;
   bool _isCustomExam = false;
 
-  // NEW: State for Streak and Greeting
-  int _streak = 0;
+  // Greeting State
   String _greeting = "Hello";
 
   @override
@@ -30,7 +29,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadData();
 
     // FIX: Delay notification logic until AFTER the UI is visible.
-    // This prevents startup lag/crashes.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _refreshNotification();
@@ -41,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   /// Updates greeting based on hour of day
   void _updateGreeting() {
     final hour = DateTime.now().hour;
-    // Simple sync logic doesn't need try-catch, but setState must be safe
     if (mounted) {
       setState(() {
         if (hour < 12) {
@@ -64,7 +61,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (isEnabled) {
         final int hour = prefs.getInt('reminder_hour') ?? 20;
         final int minute = prefs.getInt('reminder_minute') ?? 0;
-        // FIX: Catch errors if notification service fails (permissions, etc)
         await NotificationService().scheduleDailyReminder(hour, minute);
       }
     } catch (e) {
@@ -90,14 +86,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 1. Load Streak
-      final int streak = prefs.getInt('current_streak') ?? 0;
-
-      // 2. Load Exam Data
+      // Load Exam Data
       final savedExam = prefs.getString('selected_exam') ?? "General Exam";
       final String? savedDateString = prefs.getString('exam_date');
 
-      // FIX: Use tryParse instead of parse to prevent crashes on corrupted data
+      // FIX: Use tryParse instead of parse to prevent crashes
       DateTime? parsedDate;
       if (savedDateString != null) {
         parsedDate = DateTime.tryParse(savedDateString);
@@ -116,7 +109,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (mounted) {
         setState(() {
-          _streak = streak; // Update Streak UI
           _examName = savedExam;
 
           if (difference < 0) {
@@ -131,7 +123,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint("Error loading dashboard data: $e");
-      // Optional: Set error state variables here if needed
     }
   }
 
@@ -169,7 +160,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // NEW: Greeting Text
+              // Greeting Text
               Text(
                 "$_greeting, Student.",
                 style: TextStyle(
@@ -183,7 +174,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               // --- MAIN DASHBOARD CARD ---
               Container(
                 decoration: BoxDecoration(
-                  // NEW: Subtle Gradient for premium look
                   gradient: LinearGradient(
                     colors: isDark
                         ? [const Color(0xFF1E1E1E), const Color(0xFF252525)]
@@ -195,7 +185,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+                      // FIX: Deprecated withOpacity -> withValues
+                      color:
+                          Colors.black.withValues(alpha: isDark ? 0.3 : 0.05),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
@@ -205,16 +197,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
                     children: [
-                      // TOP ROW: Exam Name vs Streak
+                      // TOP ROW: Exam Name Only
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.start,
                         children: [
-                          // Exam Tag
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
-                              color: Colors.blue.withOpacity(0.1),
+                              // FIX: Deprecated withOpacity -> withValues
+                              color: Colors.blue.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Row(
@@ -236,28 +228,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               ],
                             ),
                           ),
-
-                          // Streak Counter (NEW)
-                          Row(
-                            children: [
-                              Icon(Icons.local_fire_department,
-                                  size: 20,
-                                  color: _streak > 0
-                                      ? Colors.deepOrange
-                                      : Colors.grey[400]),
-                              const SizedBox(width: 4),
-                              Text(
-                                "$_streak Day Streak",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                  color: _streak > 0
-                                      ? Colors.deepOrange
-                                      : Colors.grey,
-                                ),
-                              ),
-                            ],
-                          )
                         ],
                       ),
 
@@ -331,7 +301,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
 
-              // --- NEW POMODORO BUTTON ---
               _BouncingButton(
                 onTap: () => Navigator.pushNamed(context, '/pomodoro'),
                 child: _buildModernButtonContent(
@@ -363,7 +332,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+            // FIX: Deprecated withOpacity -> withValues
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -377,7 +347,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.15),
+                // FIX: Deprecated withOpacity -> withValues
+                color: iconColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: iconColor, size: 26),
@@ -400,7 +371,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 }
 
-// Button Animation Class (Unchanged)
+// Button Animation Class
 class _BouncingButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
