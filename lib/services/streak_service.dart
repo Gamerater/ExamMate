@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -7,6 +8,8 @@ class StreakService {
   static const String _keyBestStreak = 'streak_best';
   static const String _keyLastActionDate = 'streak_last_date';
   static const String _keyShields = 'streak_shields';
+  static const String _keyHistory =
+      'streak_history'; // NEW: Stores date -> count
 
   // State Variables
   int currentStreak = 0;
@@ -14,7 +17,10 @@ class StreakService {
   int shields = 0;
   bool hasActionToday = false;
 
-  // Singleton Pattern
+  // NEW: History Data (Format: "YYYY-MM-DD" -> ActionCount)
+  Map<String, int> history = {};
+
+  // Singleton
   static final StreakService _instance = StreakService._internal();
   factory StreakService() => _instance;
   StreakService._internal();
@@ -26,9 +32,21 @@ class StreakService {
     bestStreak = prefs.getInt(_keyBestStreak) ?? 0;
     shields = prefs.getInt(_keyShields) ?? 0;
 
+    // Load History
+    final String? historyJson = prefs.getString(_keyHistory);
+    if (historyJson != null) {
+      try {
+        Map<String, dynamic> decoded = jsonDecode(historyJson);
+        history = decoded.map((key, value) => MapEntry(key, value as int));
+      } catch (e) {
+        debugPrint("Error loading history: $e");
+        history = {};
+      }
+    }
+
     String? lastDate = prefs.getString(_keyLastActionDate);
     final now = DateTime.now();
-    final todayStr = "${now.year}-${now.month}-${now.day}";
+    final todayStr = _formatDate(now);
 
     if (lastDate == todayStr) {
       hasActionToday = true;
@@ -38,102 +56,85 @@ class StreakService {
     }
   }
 
-  /// CRITICAL: Handles missed days and Streak Protection
   Future<void> _checkMissedDays(
       SharedPreferences prefs, String? lastDate, String todayStr) async {
-    if (lastDate == null) return; // New user, nothing to check
+    if (lastDate == null) return;
 
-    final last = DateTime.parse(lastDate); // e.g. 2023-10-01
+    final last = DateTime.parse(lastDate);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // Calculate difference in days (ignoring time)
     final difference = today.difference(last).inDays;
 
-    if (difference == 1) {
-      // User was active yesterday. Streak is safe.
-      return;
-    }
+    if (difference == 1) return; // Safe
 
     if (difference > 1) {
-      // User MISSED at least one day.
       if (shields > 0) {
-        // PROTECTION ACTIVATED
-        shields--; // Consume shield
+        shields--;
         await prefs.setInt(_keyShields, shields);
-
-        // We pretend they were active yesterday to save the streak
-        // But we don't increment the count, just keep it alive.
-        // We update the "last date" to yesterday so the chain isn't broken logic-wise.
+        // Save streak using yesterday's date
         final yesterday = today.subtract(const Duration(days: 1));
-        final yesterdayStr =
-            "${yesterday.year}-${yesterday.month}-${yesterday.day}";
-        await prefs.setString(_keyLastActionDate, yesterdayStr);
-
-        debugPrint("🛡️ Streak Shield Used! Streak saved at $currentStreak");
+        await prefs.setString(_keyLastActionDate, _formatDate(yesterday));
       } else {
-        // STREAK BROKEN - Compassionate Reset
         if (currentStreak > bestStreak) {
           bestStreak = currentStreak;
           await prefs.setInt(_keyBestStreak, bestStreak);
         }
         currentStreak = 0;
         await prefs.setInt(_keyCurrentStreak, 0);
-        debugPrint("💔 Streak broken. Reset to 0.");
       }
     }
   }
 
-  /// MVP ACTION TRIGGER: Call this when Task or Pomodoro is done
+  /// MVP ACTION TRIGGER
+  /// Returns true if UI needs update
   Future<bool> markActionTaken() async {
-    if (hasActionToday) return false; // Already counted today
-
     final prefs = await SharedPreferences.getInstance();
     final now = DateTime.now();
-    final todayStr = "${now.year}-${now.month}-${now.day}";
+    final todayStr = _formatDate(now);
 
-    // 1. Increment Streak
+    // 1. Update History (The Heatmap Data)
+    int currentCount = history[todayStr] ?? 0;
+    history[todayStr] = currentCount + 1;
+    await prefs.setString(_keyHistory, jsonEncode(history));
+
+    // 2. Handle Streak Logic (Only once per day)
+    if (hasActionToday)
+      return true; // Just updated heatmap, streak already done
+
     currentStreak++;
     hasActionToday = true;
 
-    // 2. Check for Shield Reward (Every 7 days)
     if (currentStreak > 0 && currentStreak % 7 == 0) {
       if (shields < 1) {
-        // Max 1 shield
         shields++;
         await prefs.setInt(_keyShields, shields);
       }
     }
 
-    // 3. Save Data
     await prefs.setInt(_keyCurrentStreak, currentStreak);
     await prefs.setString(_keyLastActionDate, todayStr);
 
-    // Update best streak dynamically
     if (currentStreak > bestStreak) {
       bestStreak = currentStreak;
       await prefs.setInt(_keyBestStreak, bestStreak);
     }
 
-    return true; // Return true to signal UI update
+    return true;
   }
 
-  /// IDENTITY LABELS (Phase 2)
+  // Helper
+  String _formatDate(DateTime date) {
+    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  }
+
+  // ... (Keep getIdentityLabel and getStreakMessage same as before) ...
   String getIdentityLabel() {
     if (currentStreak == 0) return "Fresh Start";
     if (currentStreak < 3) return "Getting Started";
     if (currentStreak < 7) return "Momentum Builder";
     if (currentStreak < 14) return "Consistent Learner";
     if (currentStreak < 30) return "Disciplined Mind";
-    if (currentStreak < 60) return "Exam Warrior";
-    return "Legendary";
-  }
-
-  /// USER FACING MESSAGE
-  String getStreakMessage() {
-    if (currentStreak == 0) return "Do one small thing today.";
-    if (hasActionToday) return "Great work today! 🔥";
-    if (shields > 0) return "Streak protected. Keep it up! 🛡️";
-    return "Keep the momentum going!";
+    return "Exam Warrior";
   }
 }

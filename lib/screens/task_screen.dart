@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
-import '../services/streak_service.dart'; // Import the StreakService
+import '../services/streak_service.dart';
+import '../widgets/consistency_heatmap.dart'; // Import Heatmap
 
 class TaskScreen extends StatefulWidget {
   const TaskScreen({super.key});
@@ -15,7 +16,6 @@ class _TaskScreenState extends State<TaskScreen> {
   List<Task> _tasks = [];
   bool _isLoading = true;
 
-  // Initialize the StreakService
   final StreakService _streakService = StreakService();
 
   @override
@@ -26,10 +26,8 @@ class _TaskScreenState extends State<TaskScreen> {
 
   Future<void> _loadAndCheckDailyProgress() async {
     try {
-      // 1. Initialize Streak Logic (Handled by Service)
       await _streakService.init();
 
-      // 2. Load Tasks
       final prefs = await SharedPreferences.getInstance();
       final String? tasksString = prefs.getString('tasks_data');
       List<Task> allLoadedTasks = [];
@@ -64,7 +62,6 @@ class _TaskScreenState extends State<TaskScreen> {
         });
       }
 
-      // 3. Show Carry Forward Dialog if needed
       if (pendingOldTasks.isNotEmpty && mounted) {
         Future.delayed(Duration.zero, () {
           _showCarryForwardDialog(pendingOldTasks);
@@ -75,8 +72,6 @@ class _TaskScreenState extends State<TaskScreen> {
       setState(() => _isLoading = false);
     }
   }
-
-  // NOTE: Old _handleStreakLogic removed. Service handles this now.
 
   Future<void> _showCarryForwardDialog(List<Task> pendingTasks) async {
     await showDialog(
@@ -243,7 +238,6 @@ class _TaskScreenState extends State<TaskScreen> {
       selected: isSelected,
       selectedColor: color.withOpacity(0.2),
       checkmarkColor: color,
-      // Fix visibility in dark mode
       labelStyle: TextStyle(
           color:
               isSelected ? color : (isDark ? Colors.grey[300] : Colors.black87),
@@ -255,7 +249,6 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- UPDATED TOGGLE LOGIC ---
   Future<void> _toggleTask(int index) async {
     final task = _tasks[index];
     setState(() {
@@ -263,13 +256,14 @@ class _TaskScreenState extends State<TaskScreen> {
     });
     _saveTasks();
 
-    // NEW: Check if this completes an MVP action for the streak
     if (task.isCompleted) {
+      // Update Heatmap
       bool updated = await _streakService.markActionTaken();
       if (updated && mounted) {
-        setState(() {}); // Refresh UI to show updated streak/fire
+        setState(() {}); // Refresh Heatmap
+      }
 
-        // Show motivational snackbar
+      if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -277,24 +271,6 @@ class _TaskScreenState extends State<TaskScreen> {
                 "Streak Active! You are a ${_streakService.getIdentityLabel()}"),
             behavior: SnackBarBehavior.floating,
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      } else if (task.isCompleted) {
-        // Normal undo snackbar if streak was already active today
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("Task completed"),
-            action: SnackBarAction(
-              label: "Undo",
-              onPressed: () {
-                setState(() {
-                  task.isCompleted = false;
-                });
-                _saveTasks();
-              },
-            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -323,7 +299,6 @@ class _TaskScreenState extends State<TaskScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        // UPDATED TITLE: Shows Identity Label
         title: Column(
           children: [
             Text('Daily Tasks',
@@ -347,7 +322,6 @@ class _TaskScreenState extends State<TaskScreen> {
         centerTitle: true,
         iconTheme: theme.iconTheme,
         actions: [
-          // UPDATED STREAK BADGE
           Padding(
             padding: const EdgeInsets.only(right: 20),
             child: Center(
@@ -355,7 +329,6 @@ class _TaskScreenState extends State<TaskScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  // Grey if not active today, Orange if active
                   color: _streakService.hasActionToday
                       ? Colors.orange.withOpacity(0.1)
                       : Colors.grey.withOpacity(0.1),
@@ -381,7 +354,6 @@ class _TaskScreenState extends State<TaskScreen> {
                             color: _streakService.hasActionToday
                                 ? Colors.deepOrange
                                 : Colors.grey)),
-                    // Show Shield if available
                     if (_streakService.shields > 0) ...[
                       const SizedBox(width: 6),
                       const Icon(Icons.shield, size: 14, color: Colors.blue),
@@ -395,15 +367,23 @@ class _TaskScreenState extends State<TaskScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _tasks.isEmpty
-              ? _buildEmptyState(theme)
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
-                  itemCount: _tasks.length,
-                  itemBuilder: (context, index) {
-                    return _buildTaskCard(_tasks[index], index, theme, isDark);
-                  },
-                ),
+          : ListView(
+              // Changed to ListView to scroll everything
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
+              children: [
+                // HEATMAP ADDED HERE
+                const ConsistencyHeatmap(),
+                const SizedBox(height: 20),
+
+                if (_tasks.isEmpty)
+                  _buildEmptyState(theme)
+                else
+                  ..._tasks.asMap().entries.map((entry) {
+                    return _buildTaskCard(
+                        entry.value, entry.key, theme, isDark);
+                  }).toList(),
+              ],
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddTaskSheet,
         backgroundColor: Colors.blue,
@@ -418,6 +398,7 @@ class _TaskScreenState extends State<TaskScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
+          const SizedBox(height: 40),
           Container(
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
