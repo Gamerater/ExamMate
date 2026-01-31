@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
+import '../services/streak_service.dart'; // Import the StreakService
 
 class TaskScreen extends StatefulWidget {
   const TaskScreen({super.key});
@@ -12,8 +13,10 @@ class TaskScreen extends StatefulWidget {
 
 class _TaskScreenState extends State<TaskScreen> {
   List<Task> _tasks = [];
-  int _currentStreak = 0;
   bool _isLoading = true;
+
+  // Initialize the StreakService
+  final StreakService _streakService = StreakService();
 
   @override
   void initState() {
@@ -23,8 +26,11 @@ class _TaskScreenState extends State<TaskScreen> {
 
   Future<void> _loadAndCheckDailyProgress() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      // 1. Initialize Streak Logic (Handled by Service)
+      await _streakService.init();
 
+      // 2. Load Tasks
+      final prefs = await SharedPreferences.getInstance();
       final String? tasksString = prefs.getString('tasks_data');
       List<Task> allLoadedTasks = [];
 
@@ -58,8 +64,7 @@ class _TaskScreenState extends State<TaskScreen> {
         });
       }
 
-      _handleStreakLogic(prefs, todayStart);
-
+      // 3. Show Carry Forward Dialog if needed
       if (pendingOldTasks.isNotEmpty && mounted) {
         Future.delayed(Duration.zero, () {
           _showCarryForwardDialog(pendingOldTasks);
@@ -71,36 +76,7 @@ class _TaskScreenState extends State<TaskScreen> {
     }
   }
 
-  Future<void> _handleStreakLogic(
-      SharedPreferences prefs, DateTime todayDate) async {
-    int streak = prefs.getInt('current_streak') ?? 0;
-    final String? lastCompletionDate = prefs.getString('last_completion_date');
-    final now = DateTime.now();
-    final String todayKey = "${now.year}-${now.month}-${now.day}";
-
-    if (lastCompletionDate != null) {
-      try {
-        final List<String> parts = lastCompletionDate.split('-');
-        if (parts.length == 3) {
-          final DateTime lastDate = DateTime(
-              int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-          final int difference = todayDate.difference(lastDate).inDays;
-          if (difference > 1) {
-            streak = 0;
-            await prefs.setInt('current_streak', 0);
-          }
-        }
-      } catch (e) {
-        streak = 0;
-      }
-    } else if (streak > 0) {
-      streak = 0;
-      await prefs.setInt('current_streak', 0);
-    }
-
-    await prefs.setString('last_open_date', todayKey);
-    if (mounted) setState(() => _currentStreak = streak);
-  }
+  // NOTE: Old _handleStreakLogic removed. Service handles this now.
 
   Future<void> _showCarryForwardDialog(List<Task> pendingTasks) async {
     await showDialog(
@@ -246,7 +222,6 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- FIXED UI VISIBILITY ---
   Widget _buildEffortChip(
       TaskEffort value, TaskEffort groupValue, Function(TaskEffort) onSelect) {
     String label = value == TaskEffort.quick
@@ -268,76 +243,61 @@ class _TaskScreenState extends State<TaskScreen> {
       selected: isSelected,
       selectedColor: color.withOpacity(0.2),
       checkmarkColor: color,
-
-      // FIX: Light text color in Dark Mode for unselected state
+      // Fix visibility in dark mode
       labelStyle: TextStyle(
           color:
               isSelected ? color : (isDark ? Colors.grey[300] : Colors.black87),
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
-
       side: isSelected
           ? BorderSide.none
           : BorderSide(color: isDark ? Colors.grey[700]! : Colors.grey[400]!),
-
       onSelected: (_) => onSelect(value),
     );
   }
 
-  void _toggleTask(int index) {
+  // --- UPDATED TOGGLE LOGIC ---
+  Future<void> _toggleTask(int index) async {
     final task = _tasks[index];
     setState(() {
       task.isCompleted = !task.isCompleted;
     });
     _saveTasks();
-    _checkDailyCompletion();
 
+    // NEW: Check if this completes an MVP action for the streak
     if (task.isCompleted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("Task completed"),
-          action: SnackBarAction(
-            label: "Undo",
-            onPressed: () {
-              setState(() {
-                task.isCompleted = false;
-              });
-              _saveTasks();
-            },
+      bool updated = await _streakService.markActionTaken();
+      if (updated && mounted) {
+        setState(() {}); // Refresh UI to show updated streak/fire
+
+        // Show motivational snackbar
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                "Streak Active! You are a ${_streakService.getIdentityLabel()}"),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
           ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
-  Future<void> _checkDailyCompletion() async {
-    if (_tasks.isEmpty) return;
-    final bool allDone = _tasks.every((t) => t.isCompleted);
-
-    if (allDone) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final String? lastCompletionDate =
-            prefs.getString('last_completion_date');
-        final now = DateTime.now();
-        final String todayKey = "${now.year}-${now.month}-${now.day}";
-
-        if (lastCompletionDate != todayKey) {
-          final int newStreak = _currentStreak + 1;
-          await prefs.setInt('current_streak', newStreak);
-          await prefs.setString('last_completion_date', todayKey);
-
-          if (!mounted) return;
-          setState(() => _currentStreak = newStreak);
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text("🎉 Daily Goal Complete! Streak Increased!")),
-          );
-        }
-      } catch (e) {
-        debugPrint("Error checking daily completion: $e");
+        );
+      } else if (task.isCompleted) {
+        // Normal undo snackbar if streak was already active today
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text("Task completed"),
+            action: SnackBarAction(
+              label: "Undo",
+              onPressed: () {
+                setState(() {
+                  task.isCompleted = false;
+                });
+                _saveTasks();
+              },
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
       }
     }
   }
@@ -363,15 +323,31 @@ class _TaskScreenState extends State<TaskScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Daily Tasks',
-            style: TextStyle(
-                color: theme.textTheme.bodyLarge?.color,
-                fontWeight: FontWeight.bold)),
+        // UPDATED TITLE: Shows Identity Label
+        title: Column(
+          children: [
+            Text('Daily Tasks',
+                style: TextStyle(
+                    color: theme.textTheme.bodyLarge?.color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18)),
+            if (_streakService.currentStreak > 0)
+              Text(
+                _streakService.getIdentityLabel().toUpperCase(),
+                style: TextStyle(
+                    fontSize: 10,
+                    letterSpacing: 1.2,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w600),
+              ),
+          ],
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
         iconTheme: theme.iconTheme,
         actions: [
+          // UPDATED STREAK BADGE
           Padding(
             padding: const EdgeInsets.only(right: 20),
             child: Center(
@@ -379,15 +355,39 @@ class _TaskScreenState extends State<TaskScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
+                  // Grey if not active today, Orange if active
+                  color: _streakService.hasActionToday
+                      ? Colors.orange.withOpacity(0.1)
+                      : Colors.grey.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                  border: Border.all(
+                      color: _streakService.hasActionToday
+                          ? Colors.orange.withOpacity(0.3)
+                          : Colors.grey.withOpacity(0.3)),
                 ),
-                child: Text("🔥 $_currentStreak",
-                    style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.deepOrange)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.local_fire_department,
+                        size: 16,
+                        color: _streakService.hasActionToday
+                            ? Colors.deepOrange
+                            : Colors.grey),
+                    const SizedBox(width: 4),
+                    Text("${_streakService.currentStreak}",
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: _streakService.hasActionToday
+                                ? Colors.deepOrange
+                                : Colors.grey)),
+                    // Show Shield if available
+                    if (_streakService.shields > 0) ...[
+                      const SizedBox(width: 6),
+                      const Icon(Icons.shield, size: 14, color: Colors.blue),
+                    ]
+                  ],
+                ),
               ),
             ),
           )

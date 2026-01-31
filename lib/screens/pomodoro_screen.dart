@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/task.dart';
+import '../services/streak_service.dart';
 
 class PomodoroScreen extends StatefulWidget {
   const PomodoroScreen({super.key});
@@ -133,9 +134,16 @@ class _PomodoroScreenState extends State<PomodoroScreen>
 
   // --- 2. TIMER LOGIC & FEEDBACK ---
 
-  void _handleTimerComplete() {
+  void _handleTimerComplete() async {
     setState(() => _isRunning = false);
     _triggerFeedback();
+
+    // MVP ACTION TRIGGER: Finishing a timer counts as showing up!
+    // We don't wait for "Mark Done" because spending 25 mins is already a success.
+    if (_isWorkMode) {
+      await StreakService().markActionTaken();
+    }
+
     _showCompletionDialog();
   }
 
