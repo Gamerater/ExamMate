@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
 import '../services/streak_service.dart';
-import '../widgets/consistency_heatmap.dart'; // Import Heatmap
 
 class TaskScreen extends StatefulWidget {
   const TaskScreen({super.key});
@@ -257,10 +256,9 @@ class _TaskScreenState extends State<TaskScreen> {
     _saveTasks();
 
     if (task.isCompleted) {
-      // Update Heatmap
       bool updated = await _streakService.markActionTaken();
       if (updated && mounted) {
-        setState(() {}); // Refresh Heatmap
+        setState(() {});
       }
 
       if (mounted) {
@@ -368,13 +366,8 @@ class _TaskScreenState extends State<TaskScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
-              // Changed to ListView to scroll everything
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
               children: [
-                // HEATMAP ADDED HERE
-                const ConsistencyHeatmap(),
-                const SizedBox(height: 20),
-
                 if (_tasks.isEmpty)
                   _buildEmptyState(theme)
                 else
