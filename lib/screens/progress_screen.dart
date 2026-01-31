@@ -33,12 +33,12 @@ class _ProgressScreenState extends State<ProgressScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      // 1. Load Streak Data (Service handles history loading internally)
+      // 1. Load Streak Data
       await _streakService.init();
       final streak = _streakService.currentStreak;
       final isActive = _streakService.hasActionToday;
 
-      // 2. Load Task Data (For counts & focus calculation)
+      // 2. Load Task Data
       final String? tasksString = prefs.getString('tasks_data');
       int completed = 0;
       int total = 0;
@@ -61,7 +61,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
         total = todaysTasks.length;
         completed = todaysTasks.where((t) => t.isCompleted).length;
 
-        // Calculate total focus sessions for today
         for (var t in todaysTasks) {
           totalSessions += t.sessionsCompleted;
         }
@@ -87,7 +86,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }
   }
 
-  // --- HELPER: Get Identity Label ---
   String _getIdentityLabel(int streak) {
     if (streak == 0) return "Fresh Start";
     if (streak <= 3) return "Getting Started";
@@ -97,7 +95,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
     return "Exam Warrior";
   }
 
-  // --- HELPER: Get Context-Aware Quote ---
   String _getQuote() {
     if (_isStreakActive) {
       return "You showed up today. That's the victory.";
@@ -113,7 +110,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Calculate progress (prevent div by zero)
     double progress = _totalTasks == 0 ? 0.0 : _completedTasks / _totalTasks;
 
     return Scaffold(
@@ -131,16 +127,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 1. STREAK IDENTITY CARD
                   _buildStreakCard(theme, isDark),
-
                   const SizedBox(height: 24),
 
-                  // 2. DAILY GOAL PILLARS
                   Text("Today's Effort",
                       style: TextStyle(
                           fontSize: 16,
@@ -151,17 +144,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
 
                   const SizedBox(height: 24),
 
-                  // 3. CONSISTENCY HEATMAP (UPDATED)
-                  _buildConsistencyHeatmap(isDark),
+                  // EXPANDED HEATMAP
+                  _buildExpandedHeatmap(isDark),
 
                   const SizedBox(height: 24),
 
-                  // 4. CONTEXT AWARE QUOTE
                   _buildQuoteCard(theme, isDark),
-
                   const SizedBox(height: 40),
 
-                  // 5. CLOSURE FOOTER
                   Center(
                     child: Text(
                       "Progress compounds quietly.",
@@ -191,13 +181,6 @@ class _ProgressScreenState extends State<ProgressScreen> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.orange.withValues(alpha: 0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -300,15 +283,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
       String label, String value, IconData icon, Color color) {
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, size: 20, color: color),
-        ),
-        const SizedBox(height: 8),
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 4),
         Text(value,
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
@@ -316,12 +292,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  // --- HEATMAP IMPLEMENTATION ---
-  Widget _buildConsistencyHeatmap(bool isDark) {
-    // Generate dates: Today -> 34 days ago (Total 35 days = 5 weeks)
+  // --- UPDATED: FULL WIDTH HEATMAP ---
+  Widget _buildExpandedHeatmap(bool isDark) {
+    // 7 weeks (approx 50 days) looks good full width
+    const int weeksToShow = 7;
+    const int daysToShow = weeksToShow * 7;
+
     final now = DateTime.now();
-    final List<DateTime> dates = List.generate(35, (index) {
-      return now.subtract(Duration(days: (34 - index))); // Oldest first
+    final List<DateTime> dates = List.generate(daysToShow, (index) {
+      return now.subtract(Duration(days: (daysToShow - 1) - index));
     });
 
     return Column(
@@ -330,71 +309,113 @@ class _ProgressScreenState extends State<ProgressScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text("Consistency Over Time",
+            Text("Consistency Graph",
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey[600])),
-            Text("Last 30 Days",
-                style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            // Legend
+            Row(
+              children: [
+                Text("Less",
+                    style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+                const SizedBox(width: 4),
+                Container(
+                    width: 8,
+                    height: 8,
+                    color: Colors.green.withValues(alpha: 0.3)),
+                const SizedBox(width: 2),
+                Container(width: 8, height: 8, color: Colors.green),
+                const SizedBox(width: 4),
+                Text("More",
+                    style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+              ],
+            )
           ],
         ),
         const SizedBox(height: 12),
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.05)
-                : Colors.grey.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(16),
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(20),
             border: Border.all(
                 color: isDark ? Colors.white10 : Colors.grey.shade200),
           ),
-          child: GridView.builder(
-            shrinkWrap: true, // Takes only needed space
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: 35,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7, // 7 days a week
-              mainAxisSpacing: 6,
-              crossAxisSpacing: 6,
-              childAspectRatio: 1.0,
-            ),
-            itemBuilder: (context, index) {
-              return _buildHeatmapCell(dates[index], isDark);
-            },
+          child: Column(
+            children: [
+              // The Heatmap Grid
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  // Calculate dynamic cell width based on screen width
+                  // 7 Columns (Weeks) + spacing
+                  double availableWidth = constraints.maxWidth;
+                  double cellSize =
+                      (availableWidth - (weeksToShow * 4)) / weeksToShow;
+                  // Clamp cell size so it doesn't get massive on tablets
+                  if (cellSize > 24) cellSize = 24;
+
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: List.generate(weeksToShow, (weekIndex) {
+                      return Column(
+                        children: List.generate(7, (dayIndex) {
+                          final int dateIndex = (weekIndex * 7) + dayIndex;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: _buildHeatmapCell(
+                                dates[dateIndex], isDark, cellSize),
+                          );
+                        }),
+                      );
+                    }),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              // Bottom Label
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("Last 50 Days",
+                      style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+                  Text("Today",
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueAccent)),
+                ],
+              )
+            ],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildHeatmapCell(DateTime date, bool isDark) {
-    // 1. Get formatted date key
+  Widget _buildHeatmapCell(DateTime date, bool isDark, double size) {
     final String dateKey =
         "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
-
-    // 2. Get effort count from history
     final int effort = _streakService.history[dateKey] ?? 0;
 
-    // 3. Determine Color Intensity
     Color color;
     if (effort == 0) {
-      color = isDark ? Colors.white10 : Colors.grey[300]!; // Empty
+      color = isDark ? Colors.white10 : Colors.grey[200]!;
     } else if (effort <= 2) {
-      color = Colors.green.withValues(alpha: 0.4); // Light
+      color = Colors.green.withValues(alpha: 0.4);
     } else if (effort <= 5) {
-      color = Colors.green.withValues(alpha: 0.7); // Medium
+      color = Colors.green.withValues(alpha: 0.7);
     } else {
-      color = Colors.green; // Strong
+      color = Colors.green;
     }
 
-    // 4. Highlight Today
     final isToday = date.year == DateTime.now().year &&
         date.month == DateTime.now().month &&
         date.day == DateTime.now().day;
 
     return Container(
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: color,
         borderRadius: BorderRadius.circular(4),
@@ -411,21 +432,18 @@ class _ProgressScreenState extends State<ProgressScreen> {
             ? Colors.blueGrey.withValues(alpha: 0.2)
             : Colors.blue.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-            color: isDark
-                ? Colors.blueGrey.withValues(alpha: 0.3)
-                : Colors.blue.withValues(alpha: 0.1)),
       ),
       child: Row(
         children: [
           Icon(Icons.format_quote_rounded,
-              color: isDark ? Colors.blue[200] : Colors.blue[800]),
+              color: isDark ? Colors.blue[200] : Colors.blue[800], size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               _getQuote(),
               style: TextStyle(
                 fontStyle: FontStyle.italic,
+                fontSize: 13,
                 color: isDark ? Colors.blue[100] : Colors.blue[900],
                 fontWeight: FontWeight.w500,
               ),
