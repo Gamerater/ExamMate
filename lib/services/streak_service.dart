@@ -99,8 +99,9 @@ class StreakService {
     await prefs.setString(_keyHistory, jsonEncode(history));
 
     // 2. Handle Streak Logic (Only once per day)
-    if (hasActionToday)
+    if (hasActionToday) {
       return true; // Just updated heatmap, streak already done
+    }
 
     currentStreak++;
     hasActionToday = true;

@@ -374,7 +374,7 @@ class _TaskScreenState extends State<TaskScreen> {
                   ..._tasks.asMap().entries.map((entry) {
                     return _buildTaskCard(
                         entry.value, entry.key, theme, isDark);
-                  }).toList(),
+                  }),
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
