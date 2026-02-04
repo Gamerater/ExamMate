@@ -50,6 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshNotification() async {
+    // FIX: Check if service is ready/safe to access
     if (_streakService.isSilentMode) return;
 
     try {
@@ -113,11 +114,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _rawDifference = difference;
           _isCustomExam = !AppConstants.availableExams.contains(savedExam);
           _isLowEnergyMode = lowEnergy;
-          _isLoading = false;
+          // _isLoading is handled in finally block to ensure it always turns off
         });
       }
     } catch (e) {
       debugPrint("Error loading data: $e");
+      // Optional: Set an error state text here if needed
+    } finally {
+      // FIX: Ensure loading spinner stops even if data loading fails
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -166,7 +175,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+          // FIX: withValues replaced with withOpacity for compatibility
+          border: Border.all(color: Colors.grey.withOpacity(0.3)),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -180,12 +190,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _safeNavigate(String routeName) {
+    try {
+      Navigator.pushNamed(context, routeName).then((_) => _loadData());
+    } catch (e) {
+      debugPrint("Navigation Error: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // FIX: Set Text color based on Theme, ensuring readability on the dark card.
     final cardTextColor = isDark ? Colors.white : Colors.grey[900];
     final subtitleColor = isDark ? Colors.grey[500] : Colors.grey[600];
 
@@ -205,10 +222,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         actions: [
           IconButton(
             icon: Icon(Icons.settings, color: theme.iconTheme.color),
-            onPressed: () {
-              Navigator.pushNamed(context, '/settings')
-                  .then((_) => _loadData());
-            },
+            onPressed: () => _safeNavigate('/settings'),
           ),
         ],
       ),
@@ -235,13 +249,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         gradient: LinearGradient(
                           colors: _isLowEnergyMode
                               ? (isDark
-                                  ? [
-                                      // FIX: Dark Low Energy Colors
-                                      Colors.blueGrey.shade900,
-                                      Colors.black45
-                                    ]
+                                  ? [Colors.blueGrey.shade900, Colors.black45]
                                   : [
-                                      // Light Low Energy Colors
                                       Colors.blueGrey.shade100,
                                       Colors.blueGrey.shade50
                                     ])
@@ -259,8 +268,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         boxShadow: [
                           if (!_isLowEnergyMode)
                             BoxShadow(
+                                // FIX: withValues -> withOpacity
                                 color: Colors.black
-                                    .withValues(alpha: isDark ? 0.3 : 0.05),
+                                    .withOpacity(isDark ? 0.3 : 0.05),
                                 blurRadius: 20,
                                 offset: const Offset(0, 10)),
                         ],
@@ -277,7 +287,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 12, vertical: 6),
                                   decoration: BoxDecoration(
-                                    color: Colors.blue.withValues(alpha: 0.1),
+                                    // FIX: withValues -> withOpacity
+                                    color: Colors.blue.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Row(
@@ -306,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               style: TextStyle(
                                 fontSize: _rawDifference < 0 ? 48 : 72,
                                 fontWeight: FontWeight.w900,
-                                color: cardTextColor, // Correct color for theme
+                                color: cardTextColor,
                                 height: 1.0,
                                 letterSpacing: -2.0,
                               ),
@@ -332,10 +343,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.orange.withValues(alpha: 0.05),
+                          // FIX: withValues -> withOpacity
+                          color: Colors.orange.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                              color: Colors.orange.withValues(alpha: 0.2)),
+                          border:
+                              Border.all(color: Colors.orange.withOpacity(0.2)),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -371,7 +383,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           foregroundColor: theme.textTheme.bodyLarge?.color,
                           elevation: 0,
                           side: BorderSide(
-                              color: Colors.grey.withValues(alpha: 0.2)),
+                              // FIX: withValues -> withOpacity
+                              color: Colors.grey.withOpacity(0.2)),
                           padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
                       ),
@@ -391,8 +404,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 16),
 
                     _BouncingButton(
-                      onTap: () => Navigator.pushNamed(context, '/tasks')
-                          .then((_) => _loadData()),
+                      onTap: () => _safeNavigate('/tasks'),
                       child: _buildModernButtonContent(context,
                           icon: Icons.check_circle_outline,
                           label: 'Daily Tasks',
@@ -400,8 +412,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 16),
                     _BouncingButton(
-                      onTap: () => Navigator.pushNamed(context, '/progress')
-                          .then((_) => _loadData()),
+                      onTap: () => _safeNavigate('/progress'),
                       child: _buildModernButtonContent(context,
                           icon: Icons.bar_chart,
                           label: 'My Progress',
@@ -409,7 +420,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 16),
                     _BouncingButton(
-                      onTap: () => Navigator.pushNamed(context, '/pomodoro'),
+                      onTap: () {
+                        // Pomodoro usually doesn't need data reload on return
+                        try {
+                          Navigator.pushNamed(context, '/pomodoro');
+                        } catch (e) {
+                          debugPrint("$e");
+                        }
+                      },
                       child: _buildModernButtonContent(context,
                           icon: Icons.timer_outlined,
                           label: 'Pomodoro Timer',
@@ -434,7 +452,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
+              // FIX: withValues -> withOpacity
+              color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4))
         ],
@@ -447,7 +466,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.15),
+                  // FIX: withValues -> withOpacity
+                  color: iconColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: iconColor, size: 26),
             ),
@@ -499,9 +519,13 @@ class _BouncingButtonState extends State<_BouncingButton>
       onTapDown: (_) {
         if (mounted) _controller.forward();
       },
+      // FIX: Move action to onTap for proper gesture handling
+      onTap: () {
+        widget.onTap();
+      },
+      // FIX: Use onTapUp/Cancel only for animation reset
       onTapUp: (_) {
         if (mounted) _controller.reverse();
-        widget.onTap();
       },
       onTapCancel: () {
         if (mounted) _controller.reverse();
