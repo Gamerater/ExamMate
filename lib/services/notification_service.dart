@@ -50,6 +50,7 @@ class NotificationService {
 
         final bool? granted =
             await androidImplementation?.requestNotificationsPermission();
+        // On Android < 13, this returns null but permissions are implicitly granted.
         return granted ?? true;
       } else if (Platform.isIOS) {
         final IOSFlutterLocalNotificationsPlugin? iosImplementation =
@@ -72,7 +73,7 @@ class NotificationService {
 
   /// Calculates the next instance of a time, adjusting for the device's TimeZone
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
-    // 1. Get Current Local Time (Standard Dart DateTime handles local timezone automatically)
+    // 1. Get Current Local Time
     final DateTime nowLocal = DateTime.now();
 
     // 2. Create Target Local Time for Today
@@ -102,15 +103,18 @@ class NotificationService {
 
   Future<void> scheduleDailyReminder(int hour, int minute) async {
     try {
-      // Use the new TimeZone-safe calculation
-      final tz.TZDateTime scheduledDate = _nextInstanceOfTime(hour, minute);
+      // FIX: Generate message FIRST. This is async and takes time.
       final String smartBody = await _generateMotivationalMessage();
 
-      // FIX: Changed Channel ID to 'v2' to force a fresh channel creation
-      // This resets any "Silent" or "Blocked" settings from previous attempts.
+      // FIX: Calculate time AFTER the await.
+      // This prevents the "scheduled time" from slipping into the past
+      // if the data loading takes a few seconds.
+      final tz.TZDateTime scheduledDate = _nextInstanceOfTime(hour, minute);
+
+      // FIX: Increment Channel ID to 'v3' to ensure settings update on release devices
       const AndroidNotificationDetails androidDetails =
           AndroidNotificationDetails(
-        'daily_reminder_channel_v2', // CHANGED ID
+        'daily_reminder_channel_v3', // ID Updated for Release
         'Daily Study Reminder',
         channelDescription: 'Reminds you to study every day',
         importance: Importance.max,
@@ -130,6 +134,7 @@ class NotificationService {
         smartBody,
         scheduledDate,
         platformDetails,
+        // FIX: Inexact is safer for Android 12+ without special permissions
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
@@ -154,7 +159,9 @@ class NotificationService {
         try {
           final Map<String, dynamic> taskMap = jsonDecode(t);
           if (taskMap['isCompleted'] == false) pendingCount++;
-        } catch (e) {}
+        } catch (e) {
+          // Ignore malformed tasks
+        }
       }
 
       int daysLeft = 999;
@@ -162,7 +169,9 @@ class NotificationService {
         try {
           final examDate = DateTime.parse(examDateStr);
           daysLeft = examDate.difference(DateTime.now()).inDays;
-        } catch (e) {}
+        } catch (e) {
+          // Ignore invalid dates
+        }
       }
 
       if (daysLeft > 0 && daysLeft <= 60) {
