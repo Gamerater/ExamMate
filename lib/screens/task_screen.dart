@@ -25,6 +25,10 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Future<void> _loadAndCheckDailyProgress() async {
     try {
       await _streakService.init();
@@ -35,20 +39,23 @@ class _TaskScreenState extends State<TaskScreen> {
 
       if (tasksString != null) {
         try {
-          final List<dynamic> decodedList = jsonDecode(tasksString);
-          allLoadedTasks =
-              decodedList.map((item) => Task.fromMap(item)).toList();
+          final dynamic decoded = jsonDecode(tasksString);
+          // FIX: Verify data type before casting to prevent runtime crash
+          if (decoded is List) {
+            allLoadedTasks = decoded.map((item) => Task.fromMap(item)).toList();
+          }
         } catch (e) {
           debugPrint("Error decoding tasks: $e");
         }
       }
 
       final now = DateTime.now();
+      // Calculate todayStart for logic, but use _isSameDay for robust comparison
       final todayStart = DateTime(now.year, now.month, now.day);
 
       List<Task> todaysTasks = allLoadedTasks.where((t) {
-        final tDate = DateTime(t.date.year, t.date.month, t.date.day);
-        return tDate.isAtSameMomentAs(todayStart) || tDate.isAfter(todayStart);
+        // FIX: Compare dates robustly ignoring time components
+        return _isSameDay(t.date, now) || t.date.isAfter(todayStart);
       }).toList();
 
       List<Task> pendingOldTasks = allLoadedTasks.where((t) {
@@ -71,13 +78,14 @@ class _TaskScreenState extends State<TaskScreen> {
       }
 
       if (pendingOldTasks.isNotEmpty && mounted) {
+        // Ensure UI is built before showing dialog
         Future.delayed(Duration.zero, () {
-          _showCarryForwardDialog(pendingOldTasks);
+          if (mounted) _showCarryForwardDialog(pendingOldTasks);
         });
       }
     } catch (e) {
       debugPrint("Critical error loading data: $e");
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -244,7 +252,8 @@ class _TaskScreenState extends State<TaskScreen> {
     return FilterChip(
       label: Text(label),
       selected: isSelected,
-      selectedColor: color.withValues(alpha: 0.2), // Fixed deprecation
+      // FIX: Reverted to withOpacity for stability
+      selectedColor: color.withOpacity(0.2),
       checkmarkColor: color,
       labelStyle: TextStyle(
           color:
@@ -347,14 +356,13 @@ class _TaskScreenState extends State<TaskScreen> {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: _streakService.hasActionToday
-                      ? Colors.orange
-                          .withValues(alpha: 0.1) // Fixed deprecation
-                      : Colors.grey.withValues(alpha: 0.1),
+                      ? Colors.orange.withOpacity(0.1) // FIX: Reverted
+                      : Colors.grey.withOpacity(0.1), // FIX: Reverted
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                       color: _streakService.hasActionToday
-                          ? Colors.orange.withValues(alpha: 0.3)
-                          : Colors.grey.withValues(alpha: 0.3)),
+                          ? Colors.orange.withOpacity(0.3) // FIX: Reverted
+                          : Colors.grey.withOpacity(0.3)), // FIX: Reverted
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -419,14 +427,16 @@ class _TaskScreenState extends State<TaskScreen> {
           Container(
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
+              // FIX: Reverted to withOpacity
               color: (_isLowEnergyMode ? Colors.teal : Colors.blue)
-                  .withValues(alpha: 0.1), // Fixed deprecation
+                  .withOpacity(0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(Icons.assignment_add,
                 size: 80,
+                // FIX: Reverted to withOpacity
                 color: (_isLowEnergyMode ? Colors.teal : Colors.blue)
-                    .withValues(alpha: 0.5)),
+                    .withOpacity(0.5)),
           ),
           const SizedBox(height: 20),
           Text(
@@ -523,11 +533,11 @@ class _TaskScreenState extends State<TaskScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.deepOrange
-                      .withValues(alpha: 0.1), // Fixed deprecation
+                  // FIX: Reverted to withOpacity
+                  color: Colors.deepOrange.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                      color: Colors.deepOrange.withValues(alpha: 0.3)),
+                  // FIX: Reverted to withOpacity
+                  border: Border.all(color: Colors.deepOrange.withOpacity(0.3)),
                 ),
                 child: Row(
                   children: [
