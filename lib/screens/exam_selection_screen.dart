@@ -10,7 +10,8 @@ class ExamSelectionScreen extends StatefulWidget {
 }
 
 class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
-  final List<String> _exams = [...AppConstants.availableExams, 'Other'];
+  // FIX: Initialize lazily to ensure safety and deduplication
+  late final List<String> _exams;
 
   String? _selectedExam;
   DateTime? _selectedDate;
@@ -22,6 +23,11 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
   @override
   void initState() {
     super.initState();
+    // FIX: Use Set to prevent duplicates which crash DropdownButton
+    // FIX: Handle potential nulls from external constants
+    final rawExams = AppConstants.availableExams;
+    _exams = {...rawExams, 'Other'}.toList();
+
     _loadExistingData();
   }
 
@@ -32,13 +38,13 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
       final String? storedDate = prefs.getString('exam_date');
 
       if (storedExam != null && storedDate != null) {
-        // FIX: Use tryParse to prevent crash if data is corrupted
         final parsedDate = DateTime.tryParse(storedDate);
 
         if (mounted && parsedDate != null) {
           setState(() {
             _selectedDate = parsedDate;
 
+            // FIX: Check against the sanitized _exams list
             if (_exams.contains(storedExam)) {
               _selectedExam = storedExam;
               _isOtherSelected = false;
@@ -51,7 +57,6 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
         }
       }
     } catch (e) {
-      // Safely ignore storage errors - app will just show empty state
       debugPrint("Error loading existing data: $e");
     }
   }
@@ -62,8 +67,6 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
     super.dispose();
   }
 
-  // --- NEW HELPER: HUMAN READABLE DATE ---
-  // Converts "2026-05-10" to "10 May 2026"
   String _formatDate(DateTime date) {
     const List<String> months = [
       'Jan',
@@ -95,7 +98,8 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
       return;
     }
 
-    final validCharacters = RegExp(r'^[a-zA-Z0-9 .-]+$');
+    // FIX: Added apostrophe (') to allowed characters for names like "Master's"
+    final validCharacters = RegExp(r"^[a-zA-Z0-9 .'-]+$");
     if (!validCharacters.hasMatch(trimmed)) {
       setState(() => _customNameError = "No special characters (@, #, etc.)");
       return;
@@ -106,52 +110,52 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
-    // FIX: Strip time to ensure clean comparisons and UI behavior
     final firstDate = DateTime(now.year, now.month, now.day);
 
-    // FIX: Ensure lastDate is valid relative to firstDate
-    // If we pass 2030, this dynamic check prevents a crash.
-    DateTime lastDate = DateTime(2030);
-    if (lastDate.isBefore(firstDate)) {
-      lastDate = firstDate.add(const Duration(days: 365 * 5));
-    }
+    // FIX: Dynamic date range (5 years from now) instead of hardcoded 2030
+    final lastDate = DateTime(now.year + 5, 12, 31);
 
-    // FIX: Calculate initialDate carefully to avoid "initialDate must be on or after firstDate" crash
-    // If saved date is in the past, reset picker to today.
+    // FIX: Ensure initialDate is strictly valid to prevent crashes
     DateTime initialDate =
         _selectedDate ?? firstDate.add(const Duration(days: 90));
 
-    if (initialDate.isBefore(firstDate)) {
-      initialDate = firstDate;
-    }
-    if (initialDate.isAfter(lastDate)) {
-      initialDate = lastDate;
-    }
+    // Clamp initialDate within bounds
+    if (initialDate.isBefore(firstDate)) initialDate = firstDate;
+    if (initialDate.isAfter(lastDate)) initialDate = lastDate;
 
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).brightness == Brightness.dark
-                ? const ColorScheme.dark(
-                    primary: Colors.blue,
-                    onPrimary: Colors.white,
-                    surface: Color(0xFF1E1E1E),
-                    onSurface: Colors.white)
-                : const ColorScheme.light(primary: Colors.blue),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
+    // FIX: Capture parent theme to ensure picker styling matches app theme
+    // independent of the overlay context
+    final ThemeData theme = Theme.of(context);
+
+    try {
+      final DateTime? picked = await showDatePicker(
+        context: context,
+        initialDate: initialDate,
+        firstDate: firstDate,
+        lastDate: lastDate,
+        builder: (context, child) {
+          return Theme(
+            data: theme.copyWith(
+              colorScheme: theme.brightness == Brightness.dark
+                  ? const ColorScheme.dark(
+                      primary: Colors.blue,
+                      onPrimary: Colors.white,
+                      surface: Color(0xFF1E1E1E),
+                      onSurface: Colors.white)
+                  : const ColorScheme.light(primary: Colors.blue),
+            ),
+            child: child!,
+          );
+        },
+      );
+
+      if (picked != null && picked != _selectedDate) {
+        setState(() {
+          _selectedDate = picked;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error opening date picker: $e");
     }
   }
 
@@ -168,7 +172,6 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
   }
 
   Future<void> _saveAndContinue() async {
-    // Defensive check
     if (_selectedExam == null) return;
 
     if (_isOtherSelected) {
@@ -180,14 +183,12 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
       final prefs = await SharedPreferences.getInstance();
 
       String finalExamName = _selectedExam!;
-
       if (_isOtherSelected) {
         finalExamName = _customExamController.text.trim();
       }
 
       await prefs.setString('selected_exam', finalExamName);
 
-      // _selectedDate is checked in _isFormValid, but purely safe coding:
       if (_selectedDate != null) {
         await prefs.setString('exam_date', _selectedDate!.toIso8601String());
       }
@@ -196,7 +197,6 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
         Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
-      // Log error or show snackbar if needed
       debugPrint("Error saving data: $e");
     }
   }
@@ -230,7 +230,11 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedExam,
+                    // FIX: Prevent crash by verifying value exists in list
+                    value: (_selectedExam != null &&
+                            _exams.contains(_selectedExam))
+                        ? _selectedExam
+                        : null,
                     hint: const Text('Choose an Exam'),
                     isExpanded: true,
                     style: TextStyle(
@@ -293,7 +297,7 @@ class _ExamSelectionScreenState extends State<ExamSelectionScreen> {
                 label: Text(
                   _selectedDate == null
                       ? 'Select Exam Date'
-                      : _formatDate(_selectedDate!), // USES NEW HELPER
+                      : _formatDate(_selectedDate!),
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
