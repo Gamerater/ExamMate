@@ -45,24 +45,28 @@ class _ProgressScreenState extends State<ProgressScreen> {
       int totalSessions = 0;
 
       if (tasksString != null) {
-        final List<dynamic> decoded = jsonDecode(tasksString);
-        final allTasks = decoded.map((e) => Task.fromMap(e)).toList();
+        final dynamic decoded = jsonDecode(tasksString);
 
-        final now = DateTime.now();
-        final todayStart = DateTime(now.year, now.month, now.day);
+        // FIX: Verify data type before casting to prevent runtime crash
+        if (decoded is List) {
+          final allTasks = decoded.map((e) => Task.fromMap(e)).toList();
 
-        // Filter for Today only
-        final todaysTasks = allTasks.where((t) {
-          final tDate = DateTime(t.date.year, t.date.month, t.date.day);
-          return tDate.isAtSameMomentAs(todayStart) ||
-              tDate.isAfter(todayStart);
-        }).toList();
+          final now = DateTime.now();
+          final todayStart = DateTime(now.year, now.month, now.day);
 
-        total = todaysTasks.length;
-        completed = todaysTasks.where((t) => t.isCompleted).length;
+          // Filter for Today only
+          final todaysTasks = allTasks.where((t) {
+            final tDate = DateTime(t.date.year, t.date.month, t.date.day);
+            // FIX: Removed 'isAfter' to ensure "Today's Effort" only shows today's tasks
+            return tDate.isAtSameMomentAs(todayStart);
+          }).toList();
 
-        for (var t in todaysTasks) {
-          totalSessions += t.sessionsCompleted;
+          total = todaysTasks.length;
+          completed = todaysTasks.where((t) => t.isCompleted).length;
+
+          for (var t in todaysTasks) {
+            totalSessions += t.sessionsCompleted;
+          }
         }
       }
 
@@ -187,7 +191,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.local_fire_department,
+              const Icon(Icons.local_fire_department,
                   size: 32, color: Colors.deepOrange),
               const SizedBox(width: 8),
               Text(
@@ -323,7 +327,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 Container(
                     width: 8,
                     height: 8,
-                    color: Colors.green.withValues(alpha: 0.3)),
+                    // FIX: Reverted to withOpacity for stability
+                    color: Colors.green.withOpacity(0.3)),
                 const SizedBox(width: 2),
                 Container(width: 8, height: 8, color: Colors.green),
                 const SizedBox(width: 4),
@@ -364,7 +369,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 4),
                             child: _buildHeatmapCell(
-                                dates[dateIndex], isDark, cellSize),
+                                dates[dateIndex], isDark, cellSize, now),
                           );
                         }),
                       );
@@ -379,7 +384,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
                 children: [
                   Text("Last 50 Days",
                       style: TextStyle(fontSize: 12, color: Colors.grey[400])),
-                  Text("Today",
+                  const Text("Today",
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -393,7 +398,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
     );
   }
 
-  Widget _buildHeatmapCell(DateTime date, bool isDark, double size) {
+  Widget _buildHeatmapCell(
+      DateTime date, bool isDark, double size, DateTime now) {
     final String dateKey =
         "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
     final int effort = _streakService.history[dateKey] ?? 0;
@@ -402,16 +408,17 @@ class _ProgressScreenState extends State<ProgressScreen> {
     if (effort == 0) {
       color = isDark ? Colors.white10 : Colors.grey[200]!;
     } else if (effort <= 2) {
-      color = Colors.green.withValues(alpha: 0.4);
+      // FIX: Reverted to withOpacity for stability
+      color = Colors.green.withOpacity(0.4);
     } else if (effort <= 5) {
-      color = Colors.green.withValues(alpha: 0.7);
+      // FIX: Reverted to withOpacity for stability
+      color = Colors.green.withOpacity(0.7);
     } else {
       color = Colors.green;
     }
 
-    final isToday = date.year == DateTime.now().year &&
-        date.month == DateTime.now().month &&
-        date.day == DateTime.now().day;
+    final isToday =
+        date.year == now.year && date.month == now.month && date.day == now.day;
 
     return Container(
       width: size,
@@ -429,8 +436,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.blueGrey.withValues(alpha: 0.2)
-            : Colors.blue.withValues(alpha: 0.05),
+            // FIX: Reverted to withOpacity for stability
+            ? Colors.blueGrey.withOpacity(0.2)
+            : Colors.blue.withOpacity(0.05),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
