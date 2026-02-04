@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Required for logic
+import 'package:shared_preferences/shared_preferences.dart';
 
 class IntroScreen extends StatefulWidget {
   const IntroScreen({super.key});
@@ -12,7 +12,7 @@ class IntroScreen extends StatefulWidget {
 
 class _IntroScreenState extends State<IntroScreen>
     with TickerProviderStateMixin {
-  // Animation Controllers (Nullable for safety)
+  // Animation Controllers
   AnimationController? _mainController;
   Animation<double>? _logoFade;
   Animation<Offset>? _textSlide;
@@ -24,12 +24,8 @@ class _IntroScreenState extends State<IntroScreen>
   @override
   void initState() {
     super.initState();
-    // Initialize after the first frame to avoid layout issues
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _initAnimations();
-      }
-    });
+    _initAnimations();
+    _startAppSequence();
   }
 
   void _initAnimations() {
@@ -64,45 +60,53 @@ class _IntroScreenState extends State<IntroScreen>
       begin: Colors.grey[400],
       end: Colors.deepOrange,
     ).animate(_progressController!);
-
-    // 3. Start Animations
-    _mainController!.forward();
-    _progressController!.forward();
-
-    // 4. FIX: Listen for completion, then decide where to go
-    _progressController!.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        _checkAndNavigate();
-      }
-    });
-
-    // Rebuild UI now that controllers exist
-    setState(() {});
   }
 
-  /// FIX: Smart Navigation Logic
-  /// Checks if the user is new or returning before navigating.
-  Future<void> _checkAndNavigate() async {
+  Future<void> _startAppSequence() async {
+    try {
+      // Start animations
+      _mainController!.forward();
+
+      // FIX: Added <dynamic> to Future.wait to resolve type conflict
+      // between TickerFuture (void) and Future<String>
+      final results = await Future.wait<dynamic>([
+        _progressController!.forward(), // Wait for animation
+        _checkUserStatus(), // Fetch data
+      ]);
+
+      // results[1] contains the destination route from _checkUserStatus
+      final String nextRoute = results[1] as String;
+
+      if (mounted) {
+        _safeNavigate(nextRoute);
+      }
+    } catch (e) {
+      debugPrint("Startup Error: $e");
+      // Fallback
+      if (mounted) _safeNavigate('/exam');
+    }
+  }
+
+  Future<String> _checkUserStatus() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-
-      // Check if user has already selected an exam
       final String? savedExam = prefs.getString('selected_exam');
       final String? examDate = prefs.getString('exam_date');
 
-      if (!mounted) return;
-
       if (savedExam != null && savedExam.isNotEmpty && examDate != null) {
-        // Data exists -> Returning User -> Go to Dashboard
-        Navigator.of(context).pushReplacementNamed('/home');
-      } else {
-        // No data -> New User -> Go to Exam Selection
-        Navigator.of(context).pushReplacementNamed('/exam');
+        return '/home';
       }
+      return '/exam';
     } catch (e) {
-      debugPrint("Error reading prefs in Intro: $e");
-      // Safety Fallback: Go to Selection if something breaks
-      if (mounted) Navigator.of(context).pushReplacementNamed('/exam');
+      return '/exam'; // Default to new user on error
+    }
+  }
+
+  void _safeNavigate(String routeName) {
+    try {
+      Navigator.of(context).pushReplacementNamed(routeName);
+    } catch (e) {
+      debugPrint("Navigation Error: $e");
     }
   }
 
@@ -117,11 +121,6 @@ class _IntroScreenState extends State<IntroScreen>
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bgColor = Theme.of(context).scaffoldBackgroundColor;
-
-    // Safety check to prevent red screen before init
-    if (_mainController == null || _progressController == null) {
-      return Scaffold(backgroundColor: bgColor, body: const SizedBox());
-    }
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -154,7 +153,6 @@ class _IntroScreenState extends State<IntroScreen>
                     'assets/icon/icon.png',
                     width: 80,
                     height: 80,
-                    // Fallback icon if image is missing
                     errorBuilder: (c, o, s) => const Icon(Icons.school,
                         size: 80, color: Colors.deepOrange),
                   ),
