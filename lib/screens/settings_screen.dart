@@ -44,8 +44,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       final String? dateStr = prefs.getString('exam_date');
       if (dateStr != null) {
-        final date = DateTime.parse(dateStr);
-        _currentDateDisplay = "${date.day}/${date.month}/${date.year}";
+        // FIX: Use tryParse to prevent crash on corrupted data
+        final date = DateTime.tryParse(dateStr);
+        if (date != null) {
+          _currentDateDisplay = "${date.day}/${date.month}/${date.year}";
+        } else {
+          _currentDateDisplay = "Invalid Date";
+        }
       } else {
         _currentDateDisplay = "Not Set";
       }
@@ -107,7 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ElevatedButton(
               onPressed: () async {
                 await _streakService.saveUserWhy(controller.text.trim());
-                Navigator.pop(context);
+                if (context.mounted) Navigator.pop(context);
                 setState(() {}); // Refresh UI
               },
               child: const Text("Save")),
@@ -121,7 +126,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final notificationService = NotificationService();
 
     if (value) {
-      bool granted = await notificationService.requestPermissions();
+      bool granted = false;
+      try {
+        granted = await notificationService.requestPermissions();
+      } catch (e) {
+        debugPrint("Error requesting permissions: $e");
+      }
+
       if (!mounted) return;
 
       if (granted) {
@@ -166,8 +177,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           data: Theme.of(context).copyWith(
             timePickerTheme: TimePickerThemeData(
               dialHandColor: Colors.deepOrange,
-              hourMinuteTextColor: WidgetStateColor.resolveWith((states) =>
-                  states.contains(WidgetState.selected)
+              // FIX: Reverted to MaterialStateColor for broader compatibility
+              hourMinuteTextColor: MaterialStateColor.resolveWith((states) =>
+                  states.contains(MaterialState.selected)
                       ? Colors.deepOrange
                       : Colors.grey),
             ),
@@ -272,7 +284,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.remove('streak_shields');
     await prefs.remove('streak_history');
 
+    // FIX: Check mounted before using context after await
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
           content: Text("You have a clean slate. Let's begin again."),
