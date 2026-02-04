@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:ui';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/task.dart';
 import '../services/streak_service.dart';
@@ -144,6 +143,9 @@ class _PomodoroScreenState extends State<PomodoroScreen>
       await StreakService().markActionTaken();
     }
 
+    // FIX: Ensure widget is still mounted before using context for dialog
+    if (!mounted) return;
+
     _showCompletionDialog();
   }
 
@@ -280,6 +282,10 @@ class _PomodoroScreenState extends State<PomodoroScreen>
         ],
       ),
     );
+
+    // FIX: Check mounted after await before proceeding
+    if (!mounted) return;
+
     if (shouldSwitch == true) {
       _resetTimer();
       _switchMode(isWork);
@@ -304,8 +310,6 @@ class _PomodoroScreenState extends State<PomodoroScreen>
     bool tempVibration = _enableVibration;
     bool isSmartMode = _isSmartBreak;
 
-    // FIX: Unused variable removed
-
     showDialog(
       context: context,
       builder: (context) {
@@ -316,7 +320,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
               int initialMin = isWork ? tempWork : tempBreak;
               if (initialMin < 1) initialMin = 1;
 
-              // CRITICAL FIX: Clamp values to prevent Red Screen crash
+              // Clamp values to prevent Red Screen crash
               final int h = (initialMin ~/ 60).clamp(0, 23);
               final int m = (initialMin % 60).clamp(0, 59);
 
@@ -484,7 +488,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    // FIX: Deprecated withOpacity -> withValues
+                    // Modern API (Flutter 3.38.9+)
                     color: Colors.blue.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -696,7 +700,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
-                    // FIX: Deprecated withOpacity -> withValues
+                    // Modern API (Flutter 3.38.9+)
                     color: _linkedTask != null
                         ? currentColor.withValues(alpha: 0.1)
                         : Colors.transparent,
@@ -750,7 +754,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                         value: _controller.value,
                         strokeWidth: 20,
                         color: currentColor,
-                        // FIX: Deprecated withOpacity -> withValues
+                        // Modern API (Flutter 3.38.9+)
                         backgroundColor: currentColor.withValues(alpha: 0.1),
                         strokeCap: StrokeCap.round,
                       ),
@@ -803,7 +807,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                            // FIX: Deprecated withOpacity -> withValues
+                            // Modern API (Flutter 3.38.9+)
                             color: currentColor.withValues(alpha: 0.4),
                             blurRadius: 15,
                             offset: const Offset(0, 5)),
