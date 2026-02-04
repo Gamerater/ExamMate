@@ -70,35 +70,52 @@ class StreakService {
       hasActionToday = true;
     } else {
       hasActionToday = false;
-      await _checkMissedDays(prefs, lastDate, todayStr);
+      await _checkMissedDays(prefs, lastDate, now);
     }
   }
 
+  // FIX: Robust day difference calculation ignoring time components
+  int _daysBetween(DateTime from, DateTime to) {
+    final fromDate = DateTime(from.year, from.month, from.day);
+    final toDate = DateTime(to.year, to.month, to.day);
+    return (toDate.difference(fromDate).inHours / 24).round();
+  }
+
   Future<void> _checkMissedDays(
-      SharedPreferences prefs, String? lastDate, String todayStr) async {
-    if (lastDate == null) return;
+      SharedPreferences prefs, String? lastDateStr, DateTime now) async {
+    if (lastDateStr == null) return;
 
-    final last = DateTime.parse(lastDate);
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final difference = today.difference(last).inDays;
+    DateTime lastDate;
+    try {
+      lastDate = DateTime.parse(lastDateStr);
+    } catch (e) {
+      // Corrupted date string? Reset streak safely
+      currentStreak = 0;
+      await prefs.setInt(_keyCurrentStreak, 0);
+      return;
+    }
 
-    if (difference == 1) return; // Safe
+    final int diff = _daysBetween(lastDate, now);
 
-    if (difference > 1) {
-      if (shields > 0) {
-        shields--;
-        await prefs.setInt(_keyShields, shields);
-        final yesterday = today.subtract(const Duration(days: 1));
-        await prefs.setString(_keyLastActionDate, _formatDate(yesterday));
-      } else {
-        if (currentStreak > bestStreak) {
-          bestStreak = currentStreak;
-          await prefs.setInt(_keyBestStreak, bestStreak);
-        }
-        currentStreak = 0;
-        await prefs.setInt(_keyCurrentStreak, 0);
+    // If diff == 0, it's today (handled in init)
+    // If diff == 1, it's consecutively yesterday (streak safe)
+    if (diff <= 1) return;
+
+    // Diff > 1 means missed at least one full day
+    if (shields > 0) {
+      shields--;
+      await prefs.setInt(_keyShields, shields);
+      // "Fake" the last action date to yesterday to keep streak alive visually
+      final yesterday = now.subtract(const Duration(days: 1));
+      await prefs.setString(_keyLastActionDate, _formatDate(yesterday));
+    } else {
+      // Streak broken
+      if (currentStreak > bestStreak) {
+        bestStreak = currentStreak;
+        await prefs.setInt(_keyBestStreak, bestStreak);
       }
+      currentStreak = 0;
+      await prefs.setInt(_keyCurrentStreak, 0);
     }
   }
 
