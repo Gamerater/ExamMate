@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import '../utils/constants.dart';
 import '../services/notification_service.dart';
+import '../services/streak_service.dart'; // Import Service
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -19,8 +20,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isDarkTheme = false;
   bool _showStreak = true;
   bool _isReminderEnabled = false;
+  bool _isSilentMode = false; // Feature 4
 
   TimeOfDay _reminderTime = const TimeOfDay(hour: 20, minute: 0);
+  final StreakService _streakService = StreakService();
 
   @override
   void initState() {
@@ -29,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
+    await _streakService.init(); // Ensure service is ready
     final prefs = await SharedPreferences.getInstance();
 
     if (!mounted) return;
@@ -49,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isDarkTheme = prefs.getBool('is_dark_mode') ?? false;
       _showStreak = prefs.getBool('show_streak') ?? true;
       _isReminderEnabled = prefs.getBool('daily_reminder') ?? false;
+      _isSilentMode = _streakService.isSilentMode; // Load Silent Mode
 
       final int hour = prefs.getInt('reminder_hour') ?? 20;
       final int minute = prefs.getInt('reminder_minute') ?? 0;
@@ -65,32 +70,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ExamMateApp.themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
   }
 
-  // --- SAFE TOGGLE LOGIC ---
+  // --- Feature 4: Toggle Silent Mode ---
+  Future<void> _toggleSilentMode(bool value) async {
+    await _streakService.toggleSilentMode(value);
+    setState(() => _isSilentMode = value);
+  }
+
+  // --- Feature 6: Set "Why" Anchor ---
+  Future<void> _editUserWhy() async {
+    TextEditingController controller =
+        TextEditingController(text: _streakService.userWhy);
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Define Your Anchor"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Why is this exam important to you? (Short sentence)",
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: "e.g., I want stability for my family",
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel")),
+          ElevatedButton(
+              onPressed: () async {
+                await _streakService.saveUserWhy(controller.text.trim());
+                Navigator.pop(context);
+                setState(() {}); // Refresh UI
+              },
+              child: const Text("Save")),
+        ],
+      ),
+    );
+  }
+
   Future<void> _toggleReminder(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     final notificationService = NotificationService();
 
     if (value) {
       bool granted = await notificationService.requestPermissions();
-
       if (!mounted) return;
 
       if (granted) {
         try {
           await notificationService.scheduleDailyReminder(
               _reminderTime.hour, _reminderTime.minute);
-
           await prefs.setBool('daily_reminder', true);
-
           if (!mounted) return;
           setState(() => _isReminderEnabled = true);
-
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                  "Reminder set for ${_reminderTime.format(context)} daily!"),
-              backgroundColor: Colors.green,
-            ),
+                content: Text(
+                    "Reminder set for ${_reminderTime.format(context)} daily!"),
+                backgroundColor: Colors.green),
           );
         } catch (e) {
           debugPrint("Error scheduling reminder: $e");
@@ -106,9 +151,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } catch (e) {
         debugPrint("Error cancelling notifications: $e");
       }
-
       await prefs.setBool('daily_reminder', false);
-
       if (!mounted) return;
       setState(() => _isReminderEnabled = false);
     }
@@ -136,10 +179,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (picked != null) {
       final prefs = await SharedPreferences.getInstance();
-
       await prefs.setInt('reminder_hour', picked.hour);
       await prefs.setInt('reminder_minute', picked.minute);
-
       if (!mounted) return;
       setState(() => _reminderTime = picked);
 
@@ -148,11 +189,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         try {
           await service.cancelNotifications();
           await service.scheduleDailyReminder(picked.hour, picked.minute);
-
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Reminder rescheduled!")),
-            );
+                const SnackBar(content: Text("Reminder rescheduled!")));
           }
         } catch (e) {
           debugPrint("Error rescheduling reminder: $e");
@@ -167,13 +206,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text("Notifications Disabled"),
         content: const Text(
-          "To receive study reminders, please enable notifications for ExamMate in your phone settings.",
-        ),
+            "To receive study reminders, please enable notifications for ExamMate in your phone settings."),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("OK"),
-          ),
+              onPressed: () => Navigator.pop(context), child: const Text("OK"))
         ],
       ),
     );
@@ -190,18 +226,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (picked != null) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('exam_date', picked.toIso8601String());
-
       if (!mounted) return;
-      setState(() {
-        _currentDateDisplay = "${picked.day}/${picked.month}/${picked.year}";
-      });
-
+      setState(() =>
+          _currentDateDisplay = "${picked.day}/${picked.month}/${picked.year}");
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text("Exam date updated!")));
     }
   }
 
-  // --- RESET LOGIC ---
   Future<void> _confirmReset() async {
     return showDialog<void>(
       context: context,
@@ -213,14 +245,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               "This will clear your daily tasks, streak count, and history.\n\nYour exam goal and settings will be saved.\n\nThis action cannot be undone."),
           actions: <Widget>[
             TextButton(
-              child: const Text('Cancel'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
+                child: const Text('Cancel'),
+                onPressed: () => Navigator.of(context).pop()),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-              ),
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white),
               child: const Text('Reset Everything'),
               onPressed: () {
                 Navigator.of(context).pop();
@@ -235,8 +265,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _performReset() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // Clear specific keys (SAFE RESET)
     await prefs.remove('tasks_data');
     await prefs.remove('streak_current');
     await prefs.remove('streak_best');
@@ -245,24 +273,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.remove('streak_history');
 
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("You have a clean slate. Let's begin again."),
-        backgroundColor: Colors.blueGrey,
-        duration: Duration(seconds: 3),
-      ),
+          content: Text("You have a clean slate. Let's begin again."),
+          backgroundColor: Colors.blueGrey,
+          duration: Duration(seconds: 3)),
     );
-
-    // Redirect to home/dashboard to refresh state
     Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
   }
 
-  Future<void> _showConfirmationDialog({
-    required String title,
-    required String content,
-    required VoidCallback onConfirm,
-  }) async {
+  Future<void> _showConfirmationDialog(
+      {required String title,
+      required String content,
+      required VoidCallback onConfirm}) async {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -296,10 +319,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text(
-          'Settings',
-          style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
-        ),
+        title: Text('Settings',
+            style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -342,6 +363,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   );
                 },
               ),
+              _buildDivider(),
+              _buildSettingsTile(
+                icon: Icons.anchor,
+                iconColor: Colors.teal,
+                title: 'Your Anchor (Why)',
+                subtitle:
+                    _streakService.userWhy.isEmpty ? "Not Set" : "Tap to edit",
+                onTap: _editUserWhy,
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -354,10 +384,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 iconColor: Colors.purple,
                 title: 'Daily Reminders',
                 trailing: Switch(
-                  value: _isReminderEnabled,
-                  onChanged: _toggleReminder,
-                  activeThumbColor: Colors.purple,
-                ),
+                    value: _isReminderEnabled,
+                    onChanged: _toggleReminder,
+                    activeThumbColor: Colors.purple),
               ),
               if (_isReminderEnabled) ...[
                 Padding(
@@ -379,18 +408,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Text("Reminder Time",
                               style: TextStyle(
                                   fontSize: 14, color: Colors.grey[600])),
-                          Row(
-                            children: [
-                              Text(_reminderTime.format(context),
-                                  style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: textColor)),
-                              const SizedBox(width: 8),
-                              const Icon(Icons.edit,
-                                  size: 14, color: Colors.purple),
-                            ],
-                          ),
+                          Row(children: [
+                            Text(_reminderTime.format(context),
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: textColor)),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.edit,
+                                size: 14, color: Colors.purple)
+                          ]),
                         ],
                       ),
                     ),
@@ -399,14 +426,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
               _buildDivider(),
               _buildSettingsTile(
-                icon: Icons.local_fire_department,
-                iconColor: Colors.deepOrange,
-                title: 'Show Streak',
-                showComingSoon: true,
+                icon: Icons.do_not_disturb_on,
+                iconColor: Colors.blueGrey,
+                title: 'Silent Study Mode',
+                subtitle: "Reduce animations & noise",
                 trailing: Switch(
-                    value: _showStreak,
-                    onChanged: (val) => setState(() => _showStreak = val),
-                    activeThumbColor: Colors.deepOrange),
+                    value: _isSilentMode,
+                    onChanged: _toggleSilentMode,
+                    activeThumbColor: Colors.blueGrey),
               ),
               _buildDivider(),
               _buildSettingsTile(
@@ -414,10 +441,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 iconColor: Colors.indigo,
                 title: 'Dark Mode',
                 trailing: Switch(
-                  value: _isDarkTheme,
-                  onChanged: _toggleTheme,
-                  activeThumbColor: Colors.indigo,
-                ),
+                    value: _isDarkTheme,
+                    onChanged: _toggleTheme,
+                    activeThumbColor: Colors.indigo),
               ),
             ],
           ),
@@ -441,21 +467,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSectionContainer(
             children: [
               _buildSettingsTile(
-                icon: Icons.info,
-                iconColor: Colors.teal,
-                title: 'Version',
-                trailing: const Text('1.0.0',
-                    style: TextStyle(
-                        color: Colors.grey, fontWeight: FontWeight.w500)),
-                onTap: null,
-              ),
+                  icon: Icons.info,
+                  iconColor: Colors.teal,
+                  title: 'Version',
+                  trailing: const Text('1.0.0',
+                      style: TextStyle(
+                          color: Colors.grey, fontWeight: FontWeight.w500)),
+                  onTap: null),
               _buildDivider(),
               _buildSettingsTile(
-                icon: Icons.privacy_tip,
-                iconColor: Colors.grey,
-                title: 'Privacy Policy',
-                onTap: () => Navigator.pushNamed(context, '/privacy'),
-              ),
+                  icon: Icons.privacy_tip,
+                  iconColor: Colors.grey,
+                  title: 'Privacy Policy',
+                  onTap: () => Navigator.pushNamed(context, '/privacy')),
             ],
           ),
           const SizedBox(height: 40),
@@ -497,15 +521,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 10,
-              offset: const Offset(0, 4))
-        ],
-      ),
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4))
+          ]),
       child: Column(children: children),
     );
   }
@@ -516,48 +539,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
         height: 1, thickness: 0.5, color: theme.dividerColor, indent: 60);
   }
 
-  Widget _buildSettingsTile({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    String? subtitle,
-    Widget? trailing,
-    VoidCallback? onTap,
-    bool showComingSoon = false,
-  }) {
+  Widget _buildSettingsTile(
+      {required IconData icon,
+      required Color iconColor,
+      required String title,
+      String? subtitle,
+      Widget? trailing,
+      VoidCallback? onTap,
+      bool showComingSoon = false}) {
     final theme = Theme.of(context);
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10)),
-        child: Icon(icon, color: iconColor, size: 22),
-      ),
-      title: Row(
-        children: [
-          Text(title,
-              style: TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 16,
-                  color: theme.textTheme.bodyLarge?.color)),
-          if (showComingSoon) ...[
-            const SizedBox(width: 8),
-            Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.orange.shade100)),
-                child: const Text('SOON',
-                    style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.orange)))
-          ],
-        ],
-      ),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: iconColor, size: 22)),
+      title: Row(children: [
+        Text(title,
+            style: TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: 16,
+                color: theme.textTheme.bodyLarge?.color)),
+        if (showComingSoon) ...[
+          const SizedBox(width: 8),
+          Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.orange.shade100)),
+              child: const Text('SOON',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.orange)))
+        ]
+      ]),
       subtitle: subtitle != null
           ? Text(subtitle,
               style: TextStyle(fontSize: 13, color: Colors.grey[600]))

@@ -15,7 +15,9 @@ class _TaskScreenState extends State<TaskScreen> {
   List<Task> _tasks = [];
   bool _isLoading = true;
 
+  // Feature State
   final StreakService _streakService = StreakService();
+  bool _isLowEnergyMode = false; // Feature 3
 
   @override
   void initState() {
@@ -54,9 +56,16 @@ class _TaskScreenState extends State<TaskScreen> {
         return tDate.isBefore(todayStart) && !t.isCompleted;
       }).toList();
 
+      // Feature 3: Check for Low Energy Mode
+      String todayStr =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      int rating = _streakService.dailyRatings[todayStr] ?? 0;
+      bool lowEnergy = rating == 2 || rating == 3;
+
       if (mounted) {
         setState(() {
           _tasks = todaysTasks;
+          _isLowEnergyMode = lowEnergy;
           _isLoading = false;
         });
       }
@@ -235,7 +244,7 @@ class _TaskScreenState extends State<TaskScreen> {
     return FilterChip(
       label: Text(label),
       selected: isSelected,
-      selectedColor: color.withOpacity(0.2),
+      selectedColor: color.withValues(alpha: 0.2), // Fixed deprecation
       checkmarkColor: color,
       labelStyle: TextStyle(
           color:
@@ -263,15 +272,24 @@ class _TaskScreenState extends State<TaskScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                "Streak Active! You are a ${_streakService.getIdentityLabel()}"),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        // Feature 4: Check Silent Mode
+        if (_streakService.isSilentMode) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text("Task completed"),
+                duration: Duration(seconds: 1)),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  "Streak Active! You are a ${_streakService.getIdentityLabel()}"),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     }
   }
@@ -299,7 +317,8 @@ class _TaskScreenState extends State<TaskScreen> {
       appBar: AppBar(
         title: Column(
           children: [
-            Text('Daily Tasks',
+            // Feature 3: Dynamic Title based on Energy Mode
+            Text(_isLowEnergyMode ? "One Step at a Time" : "Daily Tasks",
                 style: TextStyle(
                     color: theme.textTheme.bodyLarge?.color,
                     fontWeight: FontWeight.bold,
@@ -328,13 +347,14 @@ class _TaskScreenState extends State<TaskScreen> {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: _streakService.hasActionToday
-                      ? Colors.orange.withOpacity(0.1)
-                      : Colors.grey.withOpacity(0.1),
+                      ? Colors.orange
+                          .withValues(alpha: 0.1) // Fixed deprecation
+                      : Colors.grey.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                       color: _streakService.hasActionToday
-                          ? Colors.orange.withOpacity(0.3)
-                          : Colors.grey.withOpacity(0.3)),
+                          ? Colors.orange.withValues(alpha: 0.3)
+                          : Colors.grey.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -374,14 +394,18 @@ class _TaskScreenState extends State<TaskScreen> {
                   ..._tasks.asMap().entries.map((entry) {
                     return _buildTaskCard(
                         entry.value, entry.key, theme, isDark);
-                  }),
+                  }).toList(),
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddTaskSheet,
-        backgroundColor: Colors.blue,
+        backgroundColor: _isLowEnergyMode
+            ? Colors.teal
+            : Colors.blue, // Calmer color for low energy
         icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("New Task", style: TextStyle(color: Colors.white)),
+        // Feature 3: Dynamic FAB Label
+        label: Text(_isLowEnergyMode ? "Add 1 Thing" : "New Task",
+            style: const TextStyle(color: Colors.white)),
       ),
     );
   }
@@ -395,15 +419,20 @@ class _TaskScreenState extends State<TaskScreen> {
           Container(
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: (_isLowEnergyMode ? Colors.teal : Colors.blue)
+                  .withValues(alpha: 0.1), // Fixed deprecation
               shape: BoxShape.circle,
             ),
             child: Icon(Icons.assignment_add,
-                size: 80, color: Colors.blue.withOpacity(0.5)),
+                size: 80,
+                color: (_isLowEnergyMode ? Colors.teal : Colors.blue)
+                    .withValues(alpha: 0.5)),
           ),
           const SizedBox(height: 20),
           Text(
-            'Ready to focus?',
+            _isLowEnergyMode
+                ? "No pressure."
+                : "Ready to focus?", // Feature 3 Copy
             style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -411,7 +440,9 @@ class _TaskScreenState extends State<TaskScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'Add a task to start your streak!',
+            _isLowEnergyMode
+                ? "Just add one small task today."
+                : "Add a task to start your streak!",
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16, color: Colors.grey[600]),
           ),
@@ -492,9 +523,11 @@ class _TaskScreenState extends State<TaskScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.deepOrange.withOpacity(0.1),
+                  color: Colors.deepOrange
+                      .withValues(alpha: 0.1), // Fixed deprecation
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.deepOrange.withOpacity(0.3)),
+                  border: Border.all(
+                      color: Colors.deepOrange.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
