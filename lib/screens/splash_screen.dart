@@ -17,6 +17,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkUserStatus() async {
     // 1. Start the minimum delay timer immediately (Parallel execution)
+    // Ensures splash is visible for at least 2 seconds regardless of load speed
     final delayJob = Future.delayed(const Duration(seconds: 2));
 
     SharedPreferences? prefs;
@@ -39,24 +40,34 @@ class _SplashScreenState extends State<SplashScreen> {
     // If prefs is null (error) or key is missing, default to '/exam'
     final String? savedExam = prefs?.getString('selected_exam');
 
-    if (savedExam != null && savedExam.isNotEmpty) {
-      // Data exists -> Go to Home (Skip selection)
-      Navigator.pushReplacementNamed(context, '/home');
-    } else {
-      // No data or Error -> Go to Selection (Safe Fallback)
-      Navigator.pushReplacementNamed(context, '/exam');
+    try {
+      if (savedExam != null && savedExam.isNotEmpty) {
+        // Data exists -> Go to Home (Skip selection)
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        // No data or Error -> Go to Selection (Safe Fallback)
+        Navigator.pushReplacementNamed(context, '/exam');
+      }
+    } catch (e) {
+      // FIX: Prevent crash if route names are missing in main.dart
+      debugPrint("Navigation Error: $e");
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Colors.white,
+    // FIX: Adapt to current theme (prevent white flash in Dark Mode)
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Scaffold(
+      // FIX: Use theme background color
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
+            const Text(
               'ExamMate',
               style: TextStyle(
                 fontSize: 32,
@@ -65,17 +76,18 @@ class _SplashScreenState extends State<SplashScreen> {
                 letterSpacing: 1.2,
               ),
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Text(
               'Competitive Exam Planner',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey,
+                // FIX: Ensure text is visible on both light/dark backgrounds
+                color: isDark ? Colors.grey[400] : Colors.grey[700],
                 fontWeight: FontWeight.w500,
               ),
             ),
-            SizedBox(height: 40),
-            CircularProgressIndicator(),
+            const SizedBox(height: 40),
+            const CircularProgressIndicator(),
           ],
         ),
       ),
