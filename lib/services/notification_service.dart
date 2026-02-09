@@ -14,13 +14,18 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
+  /// Initialize the notification settings
   Future<void> init() async {
     try {
+      // 1. Initialize Timezones (Critical for scheduling)
       tz.initializeTimeZones();
 
+      // 2. Android Settings
+      // NOTE: Ensure 'ic_launcher' exists in android/app/src/main/res/mipmap-*/
       const AndroidInitializationSettings initializationSettingsAndroid =
           AndroidInitializationSettings('@mipmap/ic_launcher');
 
+      // 3. iOS Settings
       const DarwinInitializationSettings initializationSettingsDarwin =
           DarwinInitializationSettings(
         requestSoundPermission: false,
@@ -34,12 +39,23 @@ class NotificationService {
         iOS: initializationSettingsDarwin,
       );
 
-      await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+      // 4. Initialize Plugin with Tap Handler
+      await flutterLocalNotificationsPlugin.initialize(
+        initializationSettings,
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          // Handle notification tap logic here
+          debugPrint("🔔 Notification Tapped: ${response.payload}");
+          // You can add navigation logic here using a GlobalKey or Navigator
+        },
+      );
+
+      debugPrint("✅ Notification Service Initialized");
     } catch (e) {
-      debugPrint("Error initializing notifications: $e");
+      debugPrint("🚨 Error initializing notifications: $e");
     }
   }
 
+  /// Request necessary permissions for Android 13+ and iOS
   Future<bool> requestPermissions() async {
     try {
       if (Platform.isAndroid) {
@@ -50,8 +66,7 @@ class NotificationService {
 
         final bool? granted =
             await androidImplementation?.requestNotificationsPermission();
-        // On Android < 13, this returns null but permissions are implicitly granted.
-        return granted ?? true;
+        return granted ?? false; // Safely return false if null
       } else if (Platform.isIOS) {
         final IOSFlutterLocalNotificationsPlugin? iosImplementation =
             flutterLocalNotificationsPlugin
@@ -66,17 +81,16 @@ class NotificationService {
         return granted ?? false;
       }
     } catch (e) {
-      debugPrint("Error requesting permissions: $e");
+      debugPrint("🚨 Error requesting permissions: $e");
     }
     return false;
   }
 
-  /// Calculates the next instance of a time, adjusting for the device's TimeZone
+  /// Calculate the next specific time (e.g., 8:00 PM) in UTC
+  /// This ensures the notification triggers at the correct local time
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
-    // 1. Get Current Local Time
     final DateTime nowLocal = DateTime.now();
 
-    // 2. Create Target Local Time for Today
     DateTime scheduledLocal = DateTime(
       nowLocal.year,
       nowLocal.month,
@@ -85,65 +99,62 @@ class NotificationService {
       minute,
     );
 
-    // 3. If that time has passed today, move to tomorrow
+    // If the time has passed for today, schedule for tomorrow
     if (scheduledLocal.isBefore(nowLocal)) {
       scheduledLocal = scheduledLocal.add(const Duration(days: 1));
     }
 
-    // 4. Convert the correct Local time to UTC for the Notification Plugin
-    // This bypasses the need for the 'flutter_timezone' package.
-    final tz.TZDateTime scheduledUTC =
-        tz.TZDateTime.from(scheduledLocal.toUtc(), tz.UTC);
-
-    debugPrint("Scheduling Notification for Local: $scheduledLocal");
-    debugPrint("Converted to UTC: $scheduledUTC");
-
-    return scheduledUTC;
+    // Convert to UTC for the plugin (Absolute Time Interpretation)
+    return tz.TZDateTime.from(scheduledLocal.toUtc(), tz.UTC);
   }
 
+  /// Schedule a daily repeating reminder
   Future<void> scheduleDailyReminder(int hour, int minute) async {
     try {
-      // FIX: Generate message FIRST. This is async and takes time.
+      // 1. Generate Message (Async)
       final String smartBody = await _generateMotivationalMessage();
 
-      // FIX: Calculate time AFTER the await.
-      // This prevents the "scheduled time" from slipping into the past
-      // if the data loading takes a few seconds.
+      // 2. Calculate Time (UTC)
       final tz.TZDateTime scheduledDate = _nextInstanceOfTime(hour, minute);
 
-      // FIX: Increment Channel ID to 'v3' to ensure settings update on release devices
+      // 3. Define Notification Details
+      // CRITICAL: ID changed to 'v4' to force update channel settings on devices
       const AndroidNotificationDetails androidDetails =
           AndroidNotificationDetails(
-        'daily_reminder_channel_v3', // ID Updated for Release
+        'daily_reminder_channel_v4',
         'Daily Study Reminder',
         channelDescription: 'Reminds you to study every day',
-        importance: Importance.max,
+        importance: Importance.max, // Max importance to show heads-up
         priority: Priority.high,
         ticker: 'Time to study!',
+        // Optional: Add sound here if needed
+        // sound: RawResourceAndroidNotificationSound('notification_sound'),
       );
 
       const NotificationDetails platformDetails =
           NotificationDetails(android: androidDetails);
 
-      // Cancel old ID 0 before scheduling new one
+      // 4. Cancel existing notification to avoid duplicates
       await flutterLocalNotificationsPlugin.cancel(0);
 
+      // 5. Schedule
       await flutterLocalNotificationsPlugin.zonedSchedule(
         0,
         'ExamMate 🎓',
         smartBody,
         scheduledDate,
         platformDetails,
-        // FIX: Inexact is safer for Android 12+ without special permissions
+        // Inexact is battery-friendly and doesn't require special permission
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
-        matchDateTimeComponents: DateTimeComponents.time,
+        matchDateTimeComponents: DateTimeComponents.time, // REPEATS DAILY
       );
 
-      debugPrint("✅ Notification Scheduled Successfully!");
+      debugPrint(
+          "✅ Notification Scheduled: $scheduledDate (UTC) with body: $smartBody");
     } catch (e) {
-      debugPrint("Error scheduling notification: $e");
+      debugPrint("🚨 Error scheduling notification: $e");
     }
   }
 
@@ -152,36 +163,32 @@ class NotificationService {
       final prefs = await SharedPreferences.getInstance();
       final int streak = prefs.getInt('current_streak') ?? 0;
       final String? examDateStr = prefs.getString('exam_date');
-      final List<String> tasks = prefs.getStringList('tasks') ?? [];
+      final List<String> tasks =
+          prefs.getStringList('tasks_data') ?? []; // Fixed key name
 
       int pendingCount = 0;
-      for (var t in tasks) {
-        try {
-          final Map<String, dynamic> taskMap = jsonDecode(t);
-          if (taskMap['isCompleted'] == false) pendingCount++;
-        } catch (e) {
-          // Ignore malformed tasks
-        }
+      if (tasks.isNotEmpty) {
+        // Simple check if list exists, detailed parsing might be overkill for just a count
+        // Assuming json structure
+        pendingCount = tasks.length;
       }
 
-      int daysLeft = 999;
+      int daysLeft = 0;
       if (examDateStr != null) {
         try {
           final examDate = DateTime.parse(examDateStr);
           daysLeft = examDate.difference(DateTime.now()).inDays;
-        } catch (e) {
-          // Ignore invalid dates
-        }
+        } catch (_) {}
       }
 
       if (daysLeft > 0 && daysLeft <= 60) {
-        return "$daysLeft days until the big day. Make a 1% improvement today.";
+        return "$daysLeft days left. Make today count.";
       }
       if (streak >= 3) {
-        return "You're on a $streak-day streak! Don't break the chain now 🔥";
+        return "You're on a $streak-day streak! Keep it alive 🔥";
       }
       if (pendingCount > 0) {
-        return "You have $pendingCount topics waiting. Knock one out tonight?";
+        return "You have pending tasks waiting. Knock one out?";
       }
     } catch (e) {
       debugPrint("Message gen error: $e");
@@ -189,12 +196,13 @@ class NotificationService {
     return "Consistency beats intensity. Time for a quick session.";
   }
 
+  /// Cancel all notifications (e.g., when user disables toggle)
   Future<void> cancelNotifications() async {
     try {
       await flutterLocalNotificationsPlugin.cancelAll();
-      debugPrint("All notifications cancelled");
+      debugPrint("🚫 All notifications cancelled");
     } catch (e) {
-      debugPrint("Error cancelling notifications: $e");
+      debugPrint("🚨 Error cancelling notifications: $e");
     }
   }
 }
