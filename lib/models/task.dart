@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 // Enum for Effort Level
+// Mapping: quick = Low, medium = Medium, deep = High
 enum TaskEffort { quick, medium, deep }
 
 class Task {
@@ -10,14 +11,16 @@ class Task {
   bool isCompleted;
   DateTime date;
 
-  // --- NEW FEATURES ---
+  // --- METADATA ---
   String note;
   TaskEffort effort;
-
-  // Track focus sessions (Simple counter)
   int sessionsCompleted;
 
-  // --- EXISTING FIELDS ---
+  // --- NEW: TIME-BOUND FEATURES ---
+  DateTime? deadline; // Null if not time-bound
+  bool isTemporary; // True if it expires
+
+  // --- LEGACY FIELDS (Kept for safety) ---
   String label;
   int colorValue;
 
@@ -29,6 +32,8 @@ class Task {
     this.note = '',
     this.effort = TaskEffort.medium,
     this.sessionsCompleted = 0,
+    this.deadline, // New
+    this.isTemporary = false, // New
     this.label = 'General',
     this.colorValue = 0xFF2196F3,
   });
@@ -42,6 +47,8 @@ class Task {
       'note': note,
       'effort': effort.index,
       'sessionsCompleted': sessionsCompleted,
+      'deadline': deadline?.toIso8601String(), // New
+      'isTemporary': isTemporary, // New
       'label': label,
       'colorValue': colorValue,
     };
@@ -50,7 +57,6 @@ class Task {
   factory Task.fromMap(Map<String, dynamic> map) {
     TaskEffort parseEffort(dynamic mapVal, String? oldPriority) {
       if (mapVal != null && mapVal is int) {
-        // FIX: Bounds check to prevent RangeError crash
         if (mapVal >= 0 && mapVal < TaskEffort.values.length) {
           return TaskEffort.values[mapVal];
         }
@@ -70,12 +76,17 @@ class Task {
           : DateTime.now(),
       note: map['note']?.toString() ?? '',
       effort: parseEffort(map['effort'], map['priority']?.toString()),
-      // FIX: Use 'num' to handle both int and double from JSON, then cast safely
       sessionsCompleted: (map['sessionsCompleted'] is num)
           ? (map['sessionsCompleted'] as num).toInt()
           : 0,
+
+      // Safely parse new fields
+      deadline: map['deadline'] != null
+          ? DateTime.tryParse(map['deadline'].toString())
+          : null,
+      isTemporary: map['isTemporary'] == true,
+
       label: map['label']?.toString() ?? 'General',
-      // FIX: Use 'num' for safety, fallback to default blue if parsing fails
       colorValue: (map['colorValue'] is num)
           ? (map['colorValue'] as num).toInt()
           : 0xFF2196F3,
@@ -85,18 +96,15 @@ class Task {
   String toJson() => json.encode(toMap());
 
   factory Task.fromJson(String source) {
-    // FIX: Try/Catch to prevent crash on malformed JSON or empty strings
     try {
       final decoded = json.decode(source);
       if (decoded is Map<String, dynamic>) {
         return Task.fromMap(decoded);
       }
     } catch (e) {
-      // Log error internally if needed, but do not crash UI
-      // print('Error parsing Task: $e');
+      // Fallback for malformed JSON
     }
 
-    // Return a safe fallback task to keep app alive
     return Task(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       title: 'Error loading task',
