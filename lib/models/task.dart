@@ -1,28 +1,28 @@
 import 'dart:convert';
 
-// Enum for Effort Level
 enum TaskEffort { quick, medium, deep }
 
+enum TaskStatus { active, completed, expired }
+
 class Task {
-  // --- CORE FIELDS ---
   String id;
   String title;
-  bool isCompleted;
+  bool isCompleted; // Kept for legacy support
   DateTime date;
 
-  // --- METADATA ---
   String note;
   TaskEffort effort;
   int sessionsCompleted;
 
-  // NEW: Subject Tag
   String? subject;
-
-  // --- TIME-BOUND FEATURES ---
   DateTime? deadline;
   bool isTemporary;
 
-  // --- LEGACY FIELDS ---
+  // --- NEW: PREMIUM ARCHITECTURE FIELDS ---
+  TaskStatus status;
+  DateTime createdAt;
+  DateTime? completedAt;
+
   String label;
   int colorValue;
 
@@ -34,12 +34,15 @@ class Task {
     this.note = '',
     this.effort = TaskEffort.medium,
     this.sessionsCompleted = 0,
-    this.subject, // New
+    this.subject,
     this.deadline,
     this.isTemporary = false,
+    this.status = TaskStatus.active,
+    DateTime? createdAt,
+    this.completedAt,
     this.label = 'General',
     this.colorValue = 0xFF2196F3,
-  });
+  }) : createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() {
     return {
@@ -50,48 +53,63 @@ class Task {
       'note': note,
       'effort': effort.index,
       'sessionsCompleted': sessionsCompleted,
-      'subject': subject, // New
+      'subject': subject,
       'deadline': deadline?.toIso8601String(),
       'isTemporary': isTemporary,
+      'status': status.index,
+      'createdAt': createdAt.toIso8601String(),
+      'completedAt': completedAt?.toIso8601String(),
       'label': label,
       'colorValue': colorValue,
     };
   }
 
   factory Task.fromMap(Map<String, dynamic> map) {
-    TaskEffort parseEffort(dynamic mapVal, String? oldPriority) {
-      if (mapVal != null && mapVal is int) {
-        if (mapVal >= 0 && mapVal < TaskEffort.values.length) {
-          return TaskEffort.values[mapVal];
-        }
+    TaskEffort parseEffort(dynamic mapVal) {
+      if (mapVal != null &&
+          mapVal is int &&
+          mapVal >= 0 &&
+          mapVal < TaskEffort.values.length) {
+        return TaskEffort.values[mapVal];
       }
-      if (oldPriority == 'High') return TaskEffort.deep;
-      if (oldPriority == 'Low') return TaskEffort.quick;
       return TaskEffort.medium;
     }
+
+    bool legacyIsCompleted = map['isCompleted'] == true;
+    TaskStatus parseStatus() {
+      if (map['status'] != null && map['status'] is int) {
+        return TaskStatus.values[map['status']];
+      }
+      return legacyIsCompleted ? TaskStatus.completed : TaskStatus.active;
+    }
+
+    DateTime parsedDate = map['date'] != null
+        ? DateTime.tryParse(map['date'].toString()) ?? DateTime.now()
+        : DateTime.now();
 
     return Task(
       id: map['id']?.toString() ??
           DateTime.now().millisecondsSinceEpoch.toString(),
       title: map['title']?.toString() ?? 'Untitled Task',
-      isCompleted: map['isCompleted'] == true,
-      date: map['date'] != null
-          ? DateTime.tryParse(map['date'].toString()) ?? DateTime.now()
-          : DateTime.now(),
+      isCompleted: legacyIsCompleted,
+      date: parsedDate,
       note: map['note']?.toString() ?? '',
-      effort: parseEffort(map['effort'], map['priority']?.toString()),
+      effort: parseEffort(map['effort']),
       sessionsCompleted: (map['sessionsCompleted'] is num)
           ? (map['sessionsCompleted'] as num).toInt()
           : 0,
-
-      // NEW: Safely parse subject (backward compatible)
       subject: map['subject']?.toString(),
-
       deadline: map['deadline'] != null
           ? DateTime.tryParse(map['deadline'].toString())
           : null,
       isTemporary: map['isTemporary'] == true,
-
+      status: parseStatus(),
+      createdAt: map['createdAt'] != null
+          ? DateTime.tryParse(map['createdAt'].toString())
+          : parsedDate, // Fallback to old date
+      completedAt: map['completedAt'] != null
+          ? DateTime.tryParse(map['completedAt'].toString())
+          : null,
       label: map['label']?.toString() ?? 'General',
       colorValue: (map['colorValue'] is num)
           ? (map['colorValue'] as num).toInt()
@@ -100,21 +118,14 @@ class Task {
   }
 
   String toJson() => json.encode(toMap());
-
   factory Task.fromJson(String source) {
     try {
       final decoded = json.decode(source);
-      if (decoded is Map<String, dynamic>) {
-        return Task.fromMap(decoded);
-      }
-    } catch (e) {
-      // Fallback
-    }
-
+      if (decoded is Map<String, dynamic>) return Task.fromMap(decoded);
+    } catch (_) {}
     return Task(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: 'Error loading task',
-      date: DateTime.now(),
-    );
+        id: DateTime.now().toString(),
+        title: 'Error loading task',
+        date: DateTime.now());
   }
 }
