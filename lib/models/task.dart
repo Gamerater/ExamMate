@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 // Enum for Effort Level
-// Mapping: quick = Low, medium = Medium, deep = High
 enum TaskEffort { quick, medium, deep }
 
 class Task {
@@ -16,11 +15,14 @@ class Task {
   TaskEffort effort;
   int sessionsCompleted;
 
-  // --- NEW: TIME-BOUND FEATURES ---
-  DateTime? deadline; // Null if not time-bound
-  bool isTemporary; // True if it expires
+  // NEW: Subject Tag
+  String? subject;
 
-  // --- LEGACY FIELDS (Kept for safety) ---
+  // --- TIME-BOUND FEATURES ---
+  DateTime? deadline;
+  bool isTemporary;
+
+  // --- LEGACY FIELDS ---
   String label;
   int colorValue;
 
@@ -32,8 +34,9 @@ class Task {
     this.note = '',
     this.effort = TaskEffort.medium,
     this.sessionsCompleted = 0,
-    this.deadline, // New
-    this.isTemporary = false, // New
+    this.subject, // New
+    this.deadline,
+    this.isTemporary = false,
     this.label = 'General',
     this.colorValue = 0xFF2196F3,
   });
@@ -47,8 +50,9 @@ class Task {
       'note': note,
       'effort': effort.index,
       'sessionsCompleted': sessionsCompleted,
-      'deadline': deadline?.toIso8601String(), // New
-      'isTemporary': isTemporary, // New
+      'subject': subject, // New
+      'deadline': deadline?.toIso8601String(),
+      'isTemporary': isTemporary,
       'label': label,
       'colorValue': colorValue,
     };
@@ -80,7 +84,9 @@ class Task {
           ? (map['sessionsCompleted'] as num).toInt()
           : 0,
 
-      // Safely parse new fields
+      // NEW: Safely parse subject (backward compatible)
+      subject: map['subject']?.toString(),
+
       deadline: map['deadline'] != null
           ? DateTime.tryParse(map['deadline'].toString())
           : null,
@@ -102,7 +108,7 @@ class Task {
         return Task.fromMap(decoded);
       }
     } catch (e) {
-      // Fallback for malformed JSON
+      // Fallback
     }
 
     return Task(
