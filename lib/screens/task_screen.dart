@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
@@ -33,6 +32,10 @@ class _TaskScreenState extends State<TaskScreen> {
     _loadAndCheckDailyProgress();
   }
 
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Future<void> _loadAndCheckDailyProgress() async {
     try {
       await _streakService.init();
@@ -43,9 +46,10 @@ class _TaskScreenState extends State<TaskScreen> {
 
       if (tasksString != null) {
         try {
-          final List<dynamic> decodedList = jsonDecode(tasksString);
-          allLoadedTasks =
-              decodedList.map((item) => Task.fromMap(item)).toList();
+          final dynamic decoded = jsonDecode(tasksString);
+          if (decoded is List) {
+            allLoadedTasks = decoded.map((item) => Task.fromMap(item)).toList();
+          }
         } catch (e) {
           debugPrint("Error decoding tasks: $e");
         }
@@ -54,14 +58,11 @@ class _TaskScreenState extends State<TaskScreen> {
       final now = DateTime.now();
       final todayStart = DateTime(now.year, now.month, now.day);
 
-      // 1. Filter for Today
       List<Task> todaysTasks = allLoadedTasks.where((t) {
-        final tDate = DateTime(t.date.year, t.date.month, t.date.day);
-        return tDate.isAtSameMomentAs(todayStart) || tDate.isAfter(todayStart);
+        return _isSameDay(t.date, now) || t.date.isAfter(todayStart);
       }).toList();
 
-      // 2. Check Deadlines (Feature 2)
-      // Remove expired temporary tasks and notify user
+      // Deadlines
       int removedCount = 0;
       todaysTasks.removeWhere((t) {
         if (t.isTemporary &&
@@ -69,13 +70,12 @@ class _TaskScreenState extends State<TaskScreen> {
             t.deadline!.isBefore(now) &&
             !t.isCompleted) {
           removedCount++;
-          return true; // Remove
+          return true;
         }
-        return false; // Keep
+        return false;
       });
 
       if (removedCount > 0) {
-        // Save the cleanup immediately
         final List<Map<String, dynamic>> mapList =
             todaysTasks.map((t) => t.toMap()).toList();
         await prefs.setString('tasks_data', jsonEncode(mapList));
@@ -94,7 +94,6 @@ class _TaskScreenState extends State<TaskScreen> {
         return tDate.isBefore(todayStart) && !t.isCompleted;
       }).toList();
 
-      // Feature 3 from previous step: Low Energy Mode Check
       String todayStr =
           "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
       int rating = _streakService.dailyRatings[todayStr] ?? 0;
@@ -106,39 +105,34 @@ class _TaskScreenState extends State<TaskScreen> {
           _isLowEnergyMode = lowEnergy;
           _isLoading = false;
         });
-        // Apply Sort immediately after loading
         _sortTasks();
       }
 
       if (pendingOldTasks.isNotEmpty && mounted) {
         Future.delayed(Duration.zero, () {
-          _showCarryForwardDialog(pendingOldTasks);
+          if (mounted) _showCarryForwardDialog(pendingOldTasks);
         });
       }
     } catch (e) {
       debugPrint("Critical error loading data: $e");
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // --- SORTING LOGIC ---
   void _sortTasks() {
     setState(() {
       _tasks.sort((a, b) {
-        // 1. Completed tasks always at the bottom
         if (a.isCompleted && !b.isCompleted) return 1;
         if (!a.isCompleted && b.isCompleted) return -1;
 
-        // 2. Sort based on selection
         switch (_currentSort) {
           case SortOption.highToLow:
-            // Deep (2) > Medium (1) > Quick (0)
             return b.effort.index.compareTo(a.effort.index);
           case SortOption.lowToHigh:
             return a.effort.index.compareTo(b.effort.index);
           case SortOption.creation:
           default:
-            return 0; // Keep original list order
+            return 0;
         }
       });
     });
@@ -227,7 +221,7 @@ class _TaskScreenState extends State<TaskScreen> {
                 }
               });
               _saveTasks();
-              _sortTasks(); // Re-sort after adding
+              _sortTasks();
               Navigator.pop(context);
             },
             child: const Text("Carry Forward"),
@@ -248,31 +242,34 @@ class _TaskScreenState extends State<TaskScreen> {
     }
   }
 
-  void _addTask(
-      String title, String note, TaskEffort effort, DateTime? deadline) {
+  void _addTask(String title, String? subject, String note, TaskEffort effort,
+      DateTime? deadline) {
     if (title.trim().isNotEmpty) {
       setState(() {
         _tasks.add(Task(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           title: title.trim(),
+          subject: subject?.trim().isEmpty ?? true
+              ? null
+              : subject!.trim(), // Save subject
           date: DateTime.now(),
           note: note.trim(),
           effort: effort,
           deadline: deadline,
-          isTemporary: deadline != null, // Auto-flag if deadline exists
+          isTemporary: deadline != null,
         ));
       });
       _saveTasks();
-      _sortTasks(); // Re-sort to place new task correctly
+      _sortTasks();
     }
   }
 
   void _showAddTaskSheet() {
     String title = "";
+    String subject = "";
     String note = "";
     TaskEffort selectedEffort = TaskEffort.medium;
 
-    // Deadline State
     bool hasDeadline = false;
     DateTime? selectedDate;
     TimeOfDay? selectedTime;
@@ -286,7 +283,6 @@ class _TaskScreenState extends State<TaskScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            // Helper to format deadline text
             String deadlineText = "Set Date & Time";
             if (selectedDate != null && selectedTime != null) {
               deadlineText =
@@ -308,18 +304,33 @@ class _TaskScreenState extends State<TaskScreen> {
                       style:
                           TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
+
+                  // Title
                   TextField(
                     autofocus: true,
                     decoration: const InputDecoration(
-                      hintText: "e.g., Solve 20 MCQs",
+                      hintText: "What needs to be done?",
                       border: OutlineInputBorder(),
                     ),
                     onChanged: (val) => title = val,
                   ),
                   const SizedBox(height: 12),
+
+                  // Subject
                   TextField(
                     decoration: const InputDecoration(
-                      hintText: "Add a note (optional)",
+                      hintText: "Subject / Tag (Optional)",
+                      prefixIcon: Icon(Icons.bookmark_border),
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => subject = val,
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Note
+                  TextField(
+                    decoration: const InputDecoration(
+                      hintText: "Add a note (Optional)",
                       prefixIcon: Icon(Icons.notes),
                       border: OutlineInputBorder(),
                     ),
@@ -327,7 +338,6 @@ class _TaskScreenState extends State<TaskScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // --- EFFORT SELECTION ---
                   const Text("Effort Level:",
                       style: TextStyle(fontWeight: FontWeight.w500)),
                   const SizedBox(height: 8),
@@ -344,7 +354,6 @@ class _TaskScreenState extends State<TaskScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // --- DEADLINE TOGGLE ---
                   SwitchListTile(
                     title: const Text("Set Deadline"),
                     subtitle: const Text("Temporary task"),
@@ -404,7 +413,6 @@ class _TaskScreenState extends State<TaskScreen> {
                       onPressed: () {
                         if (title.isNotEmpty) {
                           DateTime? finalDeadline;
-                          // Combine Date + Time
                           if (hasDeadline &&
                               selectedDate != null &&
                               selectedTime != null) {
@@ -415,8 +423,6 @@ class _TaskScreenState extends State<TaskScreen> {
                               selectedTime!.hour,
                               selectedTime!.minute,
                             );
-
-                            // Prevent past deadlines
                             if (finalDeadline.isBefore(DateTime.now())) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -425,8 +431,8 @@ class _TaskScreenState extends State<TaskScreen> {
                               return;
                             }
                           }
-
-                          _addTask(title, note, selectedEffort, finalDeadline);
+                          _addTask(title, subject, note, selectedEffort,
+                              finalDeadline);
                           Navigator.pop(context);
                         }
                       },
@@ -455,7 +461,6 @@ class _TaskScreenState extends State<TaskScreen> {
             ? Colors.blue
             : Colors.deepPurple;
     bool isSelected = value == groupValue;
-
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return FilterChip(
@@ -480,7 +485,7 @@ class _TaskScreenState extends State<TaskScreen> {
       task.isCompleted = !task.isCompleted;
     });
     _saveTasks();
-    _sortTasks(); // Re-sort to move completed to bottom
+    _sortTasks();
 
     if (task.isCompleted) {
       bool updated = await _streakService.markActionTaken();
@@ -490,7 +495,6 @@ class _TaskScreenState extends State<TaskScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        // Check Silent Mode
         if (_streakService.isSilentMode) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -498,7 +502,6 @@ class _TaskScreenState extends State<TaskScreen> {
                 duration: Duration(seconds: 1)),
           );
         } else {
-          // Customized message for deadline tasks
           String msg =
               "Streak Active! You are a ${_streakService.getDisciplineIdentity()}";
           if (task.isTemporary && task.deadline != null) {
@@ -556,7 +559,6 @@ class _TaskScreenState extends State<TaskScreen> {
         centerTitle: true,
         iconTheme: theme.iconTheme,
         actions: [
-          // SORT BUTTON
           IconButton(
             icon: const Icon(Icons.sort),
             onPressed: _showSortMenu,
@@ -609,9 +611,9 @@ class _TaskScreenState extends State<TaskScreen> {
                   _buildEmptyState(theme)
                 else
                   ..._tasks.asMap().entries.map((entry) {
-                    return _buildTaskCard(
+                    return _buildModernTaskCard(
                         entry.value, entry.key, theme, isDark);
-                  }).toList(),
+                  }),
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
@@ -663,41 +665,38 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  Widget _buildTaskCard(Task task, int index, ThemeData theme, bool isDark) {
-    final cardColor = task.isCompleted
-        ? (isDark ? Colors.grey[900] : Colors.grey[100])
-        : theme.cardColor;
-    final textColor =
-        task.isCompleted ? Colors.grey : theme.textTheme.bodyLarge?.color;
+  // --- MODERN CHIP-BASED TASK CARD ---
+  Widget _buildModernTaskCard(
+      Task task, int index, ThemeData theme, bool isDark) {
+    final bool isDone = task.isCompleted;
+    final cardColor = theme.cardColor;
 
-    IconData effortIcon;
+    // Effort metadata
     Color effortColor;
     String effortText;
     switch (task.effort) {
       case TaskEffort.quick:
-        effortIcon = Icons.bolt;
         effortColor = Colors.amber;
         effortText = "Quick";
         break;
       case TaskEffort.medium:
-        effortIcon = Icons.timer;
         effortColor = Colors.blue;
         effortText = "Medium";
         break;
       case TaskEffort.deep:
-        effortIcon = Icons.psychology;
         effortColor = Colors.deepPurple;
         effortText = "Deep";
         break;
     }
 
     // Deadline Calculation
-    String deadlineString = "";
+    String? deadlineString;
     bool isUrgent = false;
-    if (task.deadline != null && !task.isCompleted) {
+    if (task.deadline != null && !isDone) {
       final diff = task.deadline!.difference(DateTime.now());
       if (diff.isNegative) {
         deadlineString = "Overdue";
+        isUrgent = true;
       } else if (diff.inHours < 1) {
         deadlineString = "${diff.inMinutes}m left";
         isUrgent = true;
@@ -708,137 +707,185 @@ class _TaskScreenState extends State<TaskScreen> {
       }
     }
 
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      color: cardColor,
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        leading: Transform.scale(
-          scale: 1.1,
-          child: Checkbox(
-            value: task.isCompleted,
-            onChanged: (value) => _toggleTask(index),
-            activeColor: Colors.blue,
-            shape: const CircleBorder(),
-            side: BorderSide(
-                color: isDark ? Colors.grey : Colors.black54, width: 2),
-          ),
+    return Opacity(
+      opacity: isDone ? 0.6 : 1.0,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border:
+              Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
+          boxShadow: isDone || isDark
+              ? []
+              : [
+                  BoxShadow(
+                      color: Colors.black.withOpacity(0.03),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4))
+                ],
         ),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                task.title,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: textColor,
-                  fontFamily: 'Poppins',
-                  decoration: task.isCompleted
-                      ? TextDecoration.lineThrough
-                      : TextDecoration.none,
-                ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // TOP ROW: Checkbox, Title, Delete Button
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () => _toggleTask(index),
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 2, right: 12),
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: isDone ? Colors.blue : Colors.transparent,
+                        border: Border.all(
+                          color: isDone
+                              ? Colors.blue
+                              : (isDark
+                                  ? Colors.grey.shade600
+                                  : Colors.grey.shade400),
+                          width: 2,
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: isDone
+                          ? const Icon(Icons.check,
+                              size: 16, color: Colors.white)
+                          : null,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      task.title,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: isDone
+                            ? Colors.grey
+                            : theme.textTheme.bodyLarge?.color,
+                        decoration: isDone ? TextDecoration.lineThrough : null,
+                      ),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => _deleteTask(index),
+                    child: Icon(Icons.close,
+                        size: 20, color: Colors.grey.shade400),
+                  )
+                ],
               ),
-            ),
-            // DEADLINE INDICATOR
-            if (task.deadline != null && !task.isCompleted)
-              Container(
-                margin: const EdgeInsets.only(left: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                    color: isUrgent
-                        ? Colors.red.withOpacity(0.1)
-                        : Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: isUrgent ? Colors.red : Colors.orange,
-                        width: 0.5)),
-                child: Row(
+
+              // BOTTOM ROW: Chips
+              Padding(
+                padding: const EdgeInsets.only(
+                    left: 36, top: 8), // Align with text, skipping checkbox
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Icon(Icons.access_time,
-                        size: 12, color: isUrgent ? Colors.red : Colors.orange),
-                    const SizedBox(width: 4),
-                    Text(deadlineString,
-                        style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: isUrgent ? Colors.red : Colors.orange[800])),
+                    // Subject Tag
+                    if (task.subject != null && task.subject!.isNotEmpty)
+                      _buildMiniChip(
+                          text: task.subject!,
+                          icon: Icons.bookmark,
+                          color: Colors.grey,
+                          isDark: isDark),
+
+                    // Effort Tag
+                    _buildMiniChip(
+                        text: effortText,
+                        icon: Icons.bolt,
+                        color: effortColor,
+                        isDark: isDark),
+
+                    // Pomodoro Sessions Tag
+                    if (task.sessionsCompleted > 0)
+                      _buildMiniChip(
+                          text: "${task.sessionsCompleted}",
+                          icon: Icons.local_fire_department,
+                          color: Colors.deepOrange,
+                          isDark: isDark),
+
+                    // Deadline Tag
+                    if (deadlineString != null)
+                      _buildMiniChip(
+                          text: deadlineString,
+                          icon: Icons.access_time,
+                          color: isUrgent ? Colors.red : Colors.orange,
+                          isDark: isDark,
+                          isFilled: isUrgent),
                   ],
                 ),
-              )
-          ],
-        ),
-        subtitle: Row(
-          children: [
-            Icon(effortIcon, size: 14, color: effortColor),
-            const SizedBox(width: 4),
-            Text(effortText,
-                style: TextStyle(
-                    fontSize: 12,
-                    color: effortColor,
-                    fontWeight: FontWeight.bold)),
-            if (task.sessionsCompleted > 0) ...[
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.deepOrange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.deepOrange.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.local_fire_department,
-                        size: 12, color: Colors.deepOrange),
-                    const SizedBox(width: 2),
-                    Text("${task.sessionsCompleted}",
-                        style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.deepOrange)),
-                  ],
-                ),
               ),
-            ],
-            if (task.note.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              const Icon(Icons.notes, size: 14, color: Colors.grey),
-            ]
-          ],
-        ),
-        trailing: task.note.isNotEmpty
-            ? const Icon(Icons.expand_more, color: Colors.grey)
-            : IconButton(
-                icon: Icon(Icons.delete_outline, color: Colors.grey[400]),
-                onPressed: () => _deleteTask(index),
-              ),
-        children: task.note.isNotEmpty
-            ? [
+
+              // Note (If exists)
+              if (task.note.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.only(left: 36, top: 10),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Icon(Icons.notes, size: 14, color: Colors.grey.shade400),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           task.note,
                           style: TextStyle(
-                              color: Colors.grey[600],
-                              fontStyle: FontStyle.italic),
+                            fontSize: 13,
+                            color: Colors.grey.shade500,
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline,
-                            color: Colors.redAccent, size: 20),
-                        onPressed: () => _deleteTask(index),
                       ),
                     ],
                   ),
-                )
-              ]
-            : [],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Helper to build modern, small chips
+  Widget _buildMiniChip(
+      {required String text,
+      required IconData icon,
+      required Color color,
+      required bool isDark,
+      bool isFilled = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isFilled
+            ? color.withOpacity(0.1)
+            : (isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade100),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+            color: isFilled
+                ? color.withOpacity(0.3)
+                : (isDark ? Colors.white10 : Colors.grey.shade200)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isFilled
+                  ? color
+                  : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+            ),
+          ),
+        ],
       ),
     );
   }
