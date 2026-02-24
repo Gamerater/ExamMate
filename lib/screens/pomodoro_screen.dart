@@ -1,828 +1,411 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../models/task.dart';
 import '../services/streak_service.dart';
+import '../services/pomodoro_service.dart';
+import '../utils/subject_color_helper.dart';
 
-class PomodoroScreen extends StatefulWidget {
-  const PomodoroScreen({super.key});
+class ProgressScreen extends StatefulWidget {
+  const ProgressScreen({super.key});
 
   @override
-  State<PomodoroScreen> createState() => _PomodoroScreenState();
+  State<ProgressScreen> createState() => _ProgressScreenState();
 }
 
-class _PomodoroScreenState extends State<PomodoroScreen>
-    with TickerProviderStateMixin {
-  // --- CONSTANTS ---
-  static const Color workColor = Colors.deepPurpleAccent;
-  static const Color breakColor = Colors.green;
+class _ProgressScreenState extends State<ProgressScreen> {
+  int _streakCount = 0;
+  bool _isStreakActive = false;
+  int _completedTasks = 0;
+  int _totalTasks = 0;
+  int _focusMinutes = 0;
+  bool _isLoading = true;
 
-  // --- STATE ---
-  late AnimationController _controller;
-  bool _isWorkMode = true;
-  bool _isRunning = false;
+  Map<String, int> _subjectStats = {};
 
-  // Configuration (Default)
-  int _workDuration = 25;
-  int _breakDuration = 5;
-
-  // Preferences
-  bool _enableSound = true;
-  bool _enableVibration = true;
-  bool _isSmartBreak = false;
-  bool _cancelFeedback = false;
-
-  // Dependencies
-  final AudioPlayer _audioPlayer = AudioPlayer();
-
-  // Task Linking
-  Task? _linkedTask;
-  List<Task> _todaysTasks = [];
+  final StreakService _streakService = StreakService();
+  final PomodoroService _pomoService = PomodoroService();
 
   @override
   void initState() {
     super.initState();
-    // Initialize animation controller
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(minutes: 25),
-    );
-
-    // Listen for timer completion
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.dismissed) {
-        _handleTimerComplete();
-      }
-    });
-
-    _loadSettings();
-    _loadTodaysTasks();
+    _loadStats();
   }
 
-  @override
-  void dispose() {
-    _stopFeedback();
-    _controller.dispose();
-    _audioPlayer.dispose();
-    super.dispose();
-  }
+  Future<void> _loadStats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-  // --- 1. DATA LOGIC ---
+      await _streakService.init();
+      final streak = _streakService.currentStreak;
+      final isActive = _streakService.hasActionToday;
 
-  Future<void> _loadTodaysTasks() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? tasksString = prefs.getString('tasks_data');
-    if (tasksString != null) {
-      try {
+      final String? tasksString = prefs.getString('tasks_data');
+      int completed = 0;
+      int total = 0;
+      int totalSessions = 0;
+
+      if (tasksString != null) {
         final List<dynamic> decoded = jsonDecode(tasksString);
         final allTasks = decoded.map((e) => Task.fromMap(e)).toList();
         final now = DateTime.now();
         final todayStart = DateTime(now.year, now.month, now.day);
 
-        if (mounted) {
-          setState(() {
-            _todaysTasks = allTasks.where((t) {
-              final tDate = DateTime(t.date.year, t.date.month, t.date.day);
-              // Filter: Not completed AND (Today OR Future)
-              return !t.isCompleted &&
-                  (tDate.isAtSameMomentAs(todayStart) ||
-                      tDate.isAfter(todayStart));
-            }).toList();
-          });
+        final todaysTasks = allTasks.where((t) {
+          final tDate = DateTime(t.date.year, t.date.month, t.date.day);
+          return tDate.isAtSameMomentAs(todayStart) ||
+              tDate.isAfter(todayStart);
+        }).toList();
+
+        total = todaysTasks.length;
+        completed = todaysTasks
+            .where((t) => t.isCompleted || t.status == TaskStatus.completed)
+            .length;
+        for (var t in todaysTasks) {
+          totalSessions += t.sessionsCompleted;
         }
-      } catch (e) {
-        debugPrint("Error loading tasks: $e");
       }
-    }
-  }
 
-  /// Updates task stats safely.
-  /// [markCompleted]: Sets isCompleted to true.
-  /// [incrementSession]: Adds +1 to the session counter (Use false if only marking done).
-  Future<void> _updateTaskProgress(
-      {required bool markCompleted, required bool incrementSession}) async {
-    if (_linkedTask == null) return;
+      int workDuration = prefs.getInt('pomo_work_minutes') ?? 25;
+      int minutes = totalSessions * workDuration;
 
-    final prefs = await SharedPreferences.getInstance();
-    final String? tasksString = prefs.getString('tasks_data');
+      // Load Subject Stats
+      final stats = await _pomoService.getSubjectFocusStats(days: 7);
 
-    if (tasksString != null) {
-      final List<dynamic> decoded = jsonDecode(tasksString);
-      List<Task> allTasks = decoded.map((e) => Task.fromMap(e)).toList();
-
-      final index = allTasks.indexWhere((t) => t.id == _linkedTask!.id);
-      if (index != -1) {
-        if (incrementSession) {
-          allTasks[index].sessionsCompleted += 1;
-        }
-        if (markCompleted) {
-          allTasks[index].isCompleted = true;
-        }
-
-        final String data =
-            json.encode(allTasks.map((e) => e.toMap()).toList());
-        await prefs.setString('tasks_data', data);
-
-        // Refresh UI
-        _loadTodaysTasks();
+      if (mounted) {
+        setState(() {
+          _streakCount = streak;
+          _isStreakActive = isActive;
+          _completedTasks = completed;
+          _totalTasks = total;
+          _focusMinutes = minutes;
+          _subjectStats = stats;
+          _isLoading = false;
+        });
       }
+    } catch (e) {
+      debugPrint("Error loading stats: $e");
+      if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  // --- 2. TIMER LOGIC & FEEDBACK ---
-
-  void _handleTimerComplete() async {
-    setState(() => _isRunning = false);
-    _triggerFeedback();
-
-    // MVP ACTION TRIGGER: Finishing a timer counts as showing up!
-    // We don't wait for "Mark Done" because spending 25 mins is already a success.
-    if (_isWorkMode) {
-      await StreakService().markActionTaken();
-    }
-
-    // FIX: Ensure widget is still mounted before using context for dialog
-    if (!mounted) return;
-
-    _showCompletionDialog();
-  }
-
-  Future<void> _triggerFeedback() async {
-    _cancelFeedback = false; // Reset cancellation flag
-
-    // Play Sound
-    if (_enableSound) {
-      try {
-        await _audioPlayer.stop();
-        await _audioPlayer.play(AssetSource('sounds/bell.mp3'));
-      } catch (e) {
-        debugPrint("Error playing sound: $e");
-      }
-    }
-
-    // Vibrate Pattern (Loop 4 times)
-    if (_enableVibration) {
-      for (int i = 0; i < 4; i++) {
-        if (_cancelFeedback || !mounted) break;
-        try {
-          await HapticFeedback.vibrate();
-        } catch (_) {}
-
-        if (_cancelFeedback || !mounted) break;
-        await Future.delayed(const Duration(milliseconds: 800));
-      }
-    }
-  }
-
-  Future<void> _stopFeedback() async {
-    _cancelFeedback = true; // Stop the vibration loop
-    try {
-      await _audioPlayer.stop();
-    } catch (_) {}
-  }
-
-  // --- 3. SETTINGS & PERSISTENCE ---
-
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _workDuration = prefs.getInt('pomo_work_minutes') ?? 25;
-        _breakDuration = prefs.getInt('pomo_break_minutes') ?? 5;
-        _enableSound = prefs.getBool('pomo_sound_enabled') ?? true;
-        _enableVibration = prefs.getBool('pomo_vibration_enabled') ?? true;
-        _isSmartBreak = prefs.getBool('pomo_smart_break') ?? false;
-
-        // Apply loaded settings to controller
-        _updateControllerDuration();
-      });
-    }
-  }
-
-  Future<void> _saveSettings(
-      {required int work,
-      required int breakTime,
-      required bool sound,
-      required bool vibration,
-      required bool isSmart}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('pomo_work_minutes', work);
-    await prefs.setInt('pomo_break_minutes', breakTime);
-    await prefs.setBool('pomo_sound_enabled', sound);
-    await prefs.setBool('pomo_vibration_enabled', vibration);
-    await prefs.setBool('pomo_smart_break', isSmart);
-
-    if (mounted) {
-      setState(() {
-        _workDuration = work;
-        _breakDuration = breakTime;
-        _enableSound = sound;
-        _enableVibration = vibration;
-        _isSmartBreak = isSmart;
-
-        if (_isRunning) {
-          _resetTimer(); // Reset if running to apply new time safely
-        } else {
-          _updateControllerDuration();
-        }
-      });
-    }
-  }
-
-  void _updateControllerDuration() {
-    int minutes = _isWorkMode ? _workDuration : _breakDuration;
-    _controller.duration = Duration(minutes: minutes);
-    _controller.value = 1.0; // Reset visual progress
-  }
-
-  // --- 4. CONTROLS ---
-
-  void _toggleTimer() {
-    if (_controller.isAnimating) {
-      _controller.stop();
-      setState(() => _isRunning = false);
-    } else {
-      _controller.reverse(
-          from: _controller.value == 0.0 ? 1.0 : _controller.value);
-      setState(() => _isRunning = true);
-    }
-  }
-
-  void _resetTimer() {
-    _stopFeedback();
-    _controller.stop();
-    _controller.value = 1.0;
-    setState(() => _isRunning = false);
-  }
-
-  Future<void> _confirmSwitch(bool isWork) async {
-    // If stopped, just switch
-    if (!_isRunning) {
-      _switchMode(isWork);
-      return;
-    }
-    // If running, ask confirmation
-    final bool? shouldSwitch = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Stop Timer?"),
-        content: const Text("Switching modes will stop the current timer."),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            child: const Text("Stop & Switch",
-                style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    // FIX: Check mounted after await before proceeding
-    if (!mounted) return;
-
-    if (shouldSwitch == true) {
-      _resetTimer();
-      _switchMode(isWork);
-    }
-  }
-
-  void _switchMode(bool isWork) {
-    if (_isWorkMode == isWork) return;
-    setState(() {
-      _isWorkMode = isWork;
-      _updateControllerDuration();
-    });
-  }
-
-  // --- 5. UI COMPONENTS ---
-
-  void _showSettingsDialog() {
-    // Temporary variables for the dialog state
-    int tempWork = _workDuration;
-    int tempBreak = _breakDuration;
-    bool tempSound = _enableSound;
-    bool tempVibration = _enableVibration;
-    bool isSmartMode = _isSmartBreak;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            // Picker Logic
-            Future<void> pickTime(bool isWork) async {
-              int initialMin = isWork ? tempWork : tempBreak;
-              if (initialMin < 1) initialMin = 1;
-
-              // Clamp values to prevent Red Screen crash
-              final int h = (initialMin ~/ 60).clamp(0, 23);
-              final int m = (initialMin % 60).clamp(0, 59);
-
-              final TimeOfDay? picked = await showTimePicker(
-                context: context,
-                initialTime: TimeOfDay(hour: h, minute: m),
-                initialEntryMode:
-                    TimePickerEntryMode.input, // Input first for speed
-                helpText: isWork ? "SET WORK DURATION" : "SET BREAK DURATION",
-                builder: (context, child) {
-                  return MediaQuery(
-                    data: MediaQuery.of(context)
-                        .copyWith(alwaysUse24HourFormat: true),
-                    child: child!,
-                  );
-                },
-              );
-
-              if (picked != null) {
-                setStateDialog(() {
-                  int totalMinutes = (picked.hour * 60) + picked.minute;
-                  if (totalMinutes < 1) totalMinutes = 1;
-
-                  if (isWork) {
-                    tempWork = totalMinutes;
-                    if (isSmartMode) {
-                      tempBreak = (tempWork / 5).round().clamp(1, 60);
-                    }
-                  } else {
-                    tempBreak = totalMinutes;
-                  }
-                });
-              }
-            }
-
-            return AlertDialog(
-              title: const Text("Timer Settings"),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SwitchListTile(
-                      title: const Text("Smart Break"),
-                      subtitle: const Text("1:5 Ratio (Auto)"),
-                      value: isSmartMode,
-                      onChanged: (val) {
-                        setStateDialog(() {
-                          isSmartMode = val;
-                          if (val) {
-                            tempBreak = (tempWork / 5).round().clamp(1, 60);
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTimePickerField(
-                      context: context,
-                      label: "Study Duration",
-                      minutes: tempWork,
-                      enabled: true,
-                      onTap: () => pickTime(true),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildTimePickerField(
-                      context: context,
-                      label: "Break Duration",
-                      minutes: tempBreak,
-                      enabled: !isSmartMode,
-                      onTap: () => pickTime(false),
-                    ),
-                    const Divider(height: 32),
-                    SwitchListTile(
-                        title: const Text("Sound"),
-                        value: tempSound,
-                        onChanged: (v) => setStateDialog(() => tempSound = v)),
-                    SwitchListTile(
-                        title: const Text("Vibrate"),
-                        value: tempVibration,
-                        onChanged: (v) =>
-                            setStateDialog(() => tempVibration = v)),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text("Cancel")),
-                ElevatedButton(
-                  onPressed: () {
-                    _saveSettings(
-                        work: tempWork,
-                        breakTime: tempBreak,
-                        sound: tempSound,
-                        vibration: tempVibration,
-                        isSmart: isSmartMode);
-                    Navigator.pop(context);
-                  },
-                  child: const Text("Save"),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildTimePickerField({
-    required BuildContext context,
-    required String label,
-    required int minutes,
-    required bool enabled,
-    required VoidCallback onTap,
-  }) {
-    final int h = minutes ~/ 60;
-    final int m = minutes % 60;
-    String text = h > 0 ? "${h}h ${m}m" : "${m}m";
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(4),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          filled: !enabled,
-          fillColor:
-              enabled ? null : (isDark ? Colors.white10 : Colors.grey[200]),
-          suffixIcon: const Icon(Icons.touch_app, size: 20),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: enabled
-                ? Theme.of(context).textTheme.bodyLarge?.color
-                : Theme.of(context).disabledColor,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showCompletionDialog() {
-    // 1. Record session automatically (Increment Only)
-    if (_isWorkMode && _linkedTask != null) {
-      _updateTaskProgress(markCompleted: false, incrementSession: true);
-    }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(_isWorkMode ? "Great Focus!" : "Break Over!"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_isWorkMode
-                  ? "Time to take a break?"
-                  : "Ready to get back to work?"),
-              if (_isWorkMode && _linkedTask != null) ...[
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    // Modern API (Flutter 3.38.9+)
-                    color: Colors.blue.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    children: [
-                      Text("You were working on:",
-                          style:
-                              TextStyle(fontSize: 12, color: Colors.blue[800])),
-                      const SizedBox(height: 4),
-                      Text(
-                        _linkedTask!.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              _stopFeedback();
-                              Navigator.pop(context);
-                              _switchMode(!_isWorkMode);
-                            },
-                            child: const Text("Not Done"),
-                          ),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green),
-                            onPressed: () {
-                              // 2. Mark done only (No increment)
-                              _updateTaskProgress(
-                                  markCompleted: true, incrementSession: false);
-                              _stopFeedback();
-                              Navigator.pop(context);
-                              _switchMode(!_isWorkMode);
-                            },
-                            child: const Text("Mark Done",
-                                style: TextStyle(color: Colors.white)),
-                          ),
-                        ],
-                      )
-                    ],
-                  ),
-                )
-              ]
-            ],
-          ),
-          actions: (_isWorkMode && _linkedTask != null)
-              ? null
-              : [
-                  TextButton(
-                    onPressed: () {
-                      _stopFeedback();
-                      Navigator.pop(context);
-                      _switchMode(!_isWorkMode);
-                    },
-                    child: const Text("Switch Mode"),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      _stopFeedback();
-                      Navigator.pop(context);
-                    },
-                    child: const Text("Stay Here"),
-                  ),
-                ],
-        );
-      },
-    );
-  }
-
-  void _showTaskSelector() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          height: 400,
-          child: Column(
-            children: [
-              const Text("Select a Task",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _todaysTasks.isEmpty
-                    ? const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.task_alt, size: 40, color: Colors.grey),
-                            SizedBox(height: 8),
-                            Text(
-                              "No incomplete tasks for today!",
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _todaysTasks.length,
-                        itemBuilder: (context, index) {
-                          final task = _todaysTasks[index];
-                          return ListTile(
-                            leading: const Icon(Icons.circle_outlined),
-                            title: Text(task.title),
-                            onTap: () {
-                              setState(() => _linkedTask = task);
-                              Navigator.pop(context);
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _formatTime(int totalSeconds) {
-    final int m = totalSeconds ~/ 60;
-    final int s = totalSeconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-  }
-
-  Widget _buildModeButton(String label, bool isWork) {
-    final bool isSelected = _isWorkMode == isWork;
-    return GestureDetector(
-      onTap: () => _confirmSwitch(isWork),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? (isWork ? workColor : breakColor)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(25),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-              color: isSelected ? Colors.white : Colors.grey[600],
-              fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final currentColor = _isWorkMode ? workColor : breakColor;
+    double progress = _totalTasks == 0 ? 0.0 : _completedTasks / _totalTasks;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text("Pomodoro Timer",
+        title: Text("Your Growth",
             style: TextStyle(
                 color: theme.textTheme.bodyLarge?.color,
                 fontWeight: FontWeight.bold)),
+        centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        centerTitle: true,
         iconTheme: theme.iconTheme,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.settings), onPressed: _showSettingsDialog)
-        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.grey[800] : Colors.grey[200],
-                borderRadius: BorderRadius.circular(30),
-              ),
-              child: Row(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: _buildModeButton("Work", true)),
-                  Expanded(child: _buildModeButton("Break", false)),
+                  _buildStreakCard(theme, isDark),
+                  const SizedBox(height: 24),
+                  Text("Today's Effort",
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[600])),
+                  const SizedBox(height: 12),
+                  _buildProgressCard(theme, isDark, progress),
+                  const SizedBox(height: 24),
+                  _buildExpandedHeatmap(isDark),
+                  if (_subjectStats.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    Text("Subject Focus (Last 7 Days)",
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[600])),
+                    const SizedBox(height: 12),
+                    _buildSubjectStatsRow(isDark),
+                  ],
+                  const SizedBox(height: 40),
+                  Center(
+                      child: Text("Progress compounds quietly.",
+                          style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                              letterSpacing: 0.5))),
+                  const SizedBox(height: 20),
                 ],
               ),
             ),
+    );
+  }
 
-            const SizedBox(height: 30),
+  Widget _buildSubjectStatsRow(bool isDark) {
+    List<MapEntry<String, int>> sortedStats = _subjectStats.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
-            // LINKED TASK INDICATOR (Safe & Interactive)
-            if (_isWorkMode)
-              InkWell(
-                onTap: _isRunning ? null : _showTaskSelector,
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    // Modern API (Flutter 3.38.9+)
-                    color: _linkedTask != null
-                        ? currentColor.withValues(alpha: 0.1)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                        color:
-                            _linkedTask != null ? currentColor : Colors.grey),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                          _linkedTask != null
-                              ? Icons.check_circle
-                              : Icons.add_circle_outline,
-                          color:
-                              _linkedTask != null ? currentColor : Colors.grey),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          _linkedTask?.title ?? "Link a Task",
-                          style: TextStyle(
-                              color: _linkedTask != null
-                                  ? currentColor
-                                  : Colors.grey,
-                              fontWeight: FontWeight.w600),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+    return SizedBox(
+      height: 80,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: sortedStats.length,
+        itemBuilder: (context, index) {
+          final stat = sortedStats[index];
+          Color color = SubjectColorHelper.getColor(stat.key);
+
+          return Container(
+            width: 120,
+            margin: const EdgeInsets.only(right: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withOpacity(0.05)
+                  : Theme.of(context).cardColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border(
+                top: BorderSide(
+                    color: isDark ? Colors.white10 : Colors.grey.shade200),
+                right: BorderSide(
+                    color: isDark ? Colors.white10 : Colors.grey.shade200),
+                bottom: BorderSide(
+                    color: isDark ? Colors.white10 : Colors.grey.shade200),
+                left: BorderSide(color: color, width: 4),
               ),
-
-            const Spacer(),
-
-            // TIMER VISUALIZATION
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                final count =
-                    _controller.duration!.inSeconds * _controller.value;
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox(
-                      width: 280,
-                      height: 280,
-                      child: CircularProgressIndicator(
-                        value: _controller.value,
-                        strokeWidth: 20,
-                        color: currentColor,
-                        // Modern API (Flutter 3.38.9+)
-                        backgroundColor: currentColor.withValues(alpha: 0.1),
-                        strokeCap: StrokeCap.round,
-                      ),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _formatTime(count.ceil()),
-                          style: TextStyle(
-                            fontSize: 64,
-                            fontWeight: FontWeight.bold,
-                            color: theme.textTheme.bodyLarge?.color,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                        Text(
-                          _isWorkMode ? "Focus Time" : "Rest Time",
-                          style: TextStyle(
-                              fontSize: 18,
-                              color: currentColor,
-                              fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                  ],
-                );
-              },
             ),
-
-            const Spacer(),
-
-            // CONTROLS
-            Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(
-                  onPressed: _resetTimer,
-                  icon: const Icon(Icons.refresh),
-                  iconSize: 32,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 32),
-                GestureDetector(
-                  onTap: _toggleTimer,
-                  child: Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: currentColor,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                            // Modern API (Flutter 3.38.9+)
-                            color: currentColor.withValues(alpha: 0.4),
-                            blurRadius: 15,
-                            offset: const Offset(0, 5)),
-                      ],
-                    ),
-                    child: Icon(_isRunning ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white, size: 40),
-                  ),
-                ),
-                const SizedBox(width: 80),
+                Text(stat.key,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 4),
+                Text("${stat.value} mins",
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12)),
               ],
             ),
-            const SizedBox(height: 50),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildStreakCard(ThemeData theme, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [Colors.deepOrange.shade900, Colors.deepOrange.shade700]
+              : [Colors.orange.shade100, Colors.orange.shade50],
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.local_fire_department,
+                  size: 32, color: Colors.deepOrange),
+              const SizedBox(width: 8),
+              Text("$_streakCount Day Streak",
+                  style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.deepOrange[800])),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressCard(ThemeData theme, bool isDark, double progress) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: isDark ? Colors.white10 : Colors.grey.shade200)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("Completion",
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              Text("${(progress * 100).toInt()}%",
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200]),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _buildStatPillar("Tasks", "$_completedTasks/$_totalTasks",
+                  Icons.check_circle_outline, Colors.blue),
+              _buildStatPillar("Focus", "${_focusMinutes}m",
+                  Icons.timer_outlined, Colors.purple),
+              _buildStatPillar("Status", _isStreakActive ? "Active" : "Paused",
+                  Icons.bolt, _isStreakActive ? Colors.orange : Colors.grey),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatPillar(
+      String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 4),
+        Text(value,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  Widget _buildExpandedHeatmap(bool isDark) {
+    const int weeksToShow = 7;
+    const int daysToShow = weeksToShow * 7;
+
+    final now = DateTime.now();
+    final List<DateTime> dates = List.generate(daysToShow, (index) {
+      return now.subtract(Duration(days: (daysToShow - 1) - index));
+    });
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("Consistency Graph",
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[600])),
+            Row(
+              children: [
+                Text("Less",
+                    style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+                const SizedBox(width: 4),
+                Container(
+                    width: 8, height: 8, color: Colors.green.withOpacity(0.3)),
+                const SizedBox(width: 2),
+                Container(width: 8, height: 8, color: Colors.green),
+                const SizedBox(width: 4),
+                Text("More",
+                    style: TextStyle(fontSize: 10, color: Colors.grey[500])),
+              ],
+            )
           ],
         ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: isDark ? Colors.white10 : Colors.grey.shade200),
+          ),
+          child: Column(
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  double availableWidth = constraints.maxWidth;
+                  double cellSize =
+                      (availableWidth - (weeksToShow * 4)) / weeksToShow;
+                  if (cellSize > 24) cellSize = 24;
+
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: List.generate(weeksToShow, (weekIndex) {
+                      return Column(
+                        children: List.generate(7, (dayIndex) {
+                          final int dateIndex = (weekIndex * 7) + dayIndex;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: _buildHeatmapCell(
+                                dates[dateIndex], isDark, cellSize),
+                          );
+                        }),
+                      );
+                    }),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("Last 50 Days",
+                      style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+                  Text("Today",
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueAccent)),
+                ],
+              )
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeatmapCell(DateTime date, bool isDark, double size) {
+    final String dateKey =
+        "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+    final int effort = _streakService.history[dateKey] ?? 0;
+
+    Color color;
+    if (effort == 0) {
+      color = isDark ? Colors.white10 : Colors.grey[200]!;
+    } else if (effort <= 2) {
+      color = Colors.green.withOpacity(0.4);
+    } else if (effort <= 5) {
+      color = Colors.green.withOpacity(0.7);
+    } else {
+      color = Colors.green;
+    }
+
+    final isToday = date.year == DateTime.now().year &&
+        date.month == DateTime.now().month &&
+        date.day == DateTime.now().day;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+        border: isToday ? Border.all(color: Colors.blueAccent, width: 2) : null,
       ),
     );
   }
