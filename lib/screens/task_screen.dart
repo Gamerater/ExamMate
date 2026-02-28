@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/task.dart';
 import '../services/streak_service.dart';
 import '../services/task_service.dart';
@@ -213,8 +216,6 @@ class _TaskScreenState extends State<TaskScreen> {
                             fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
                   const Divider(),
-
-                  // Grouping Toggle
                   SwitchListTile(
                     title: const Text("Group by Subject",
                         style: TextStyle(fontWeight: FontWeight.w600)),
@@ -226,8 +227,6 @@ class _TaskScreenState extends State<TaskScreen> {
                     },
                   ),
                   const Divider(),
-
-                  // Subject Filter
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     child: Text("Filter Subject",
@@ -258,8 +257,6 @@ class _TaskScreenState extends State<TaskScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Sort Options
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                     child: Text("Sort By",
@@ -492,6 +489,202 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
+  // --- NEW UI COMPONENTS ---
+
+  Widget _buildSummaryHeader(ThemeData theme, bool isDark) {
+    int totalToday = _allTodayTasks.length;
+    int completedToday =
+        _allTodayTasks.where((t) => t.status == TaskStatus.completed).length;
+    int remaining = totalToday - completedToday;
+    double progress = totalToday == 0 ? 0.0 : completedToday / totalToday;
+
+    String title;
+    String subtitle;
+
+    if (totalToday == 0) {
+      title = "No Tasks Yet";
+      subtitle = "Add one to keep your streak alive.";
+    } else if (remaining == 0) {
+      title = "All Tasks Complete 🎉";
+      subtitle = "Momentum secured for today.";
+    } else {
+      title = "$remaining Task(s) Left Today";
+      subtitle = "Keep your momentum alive.";
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title,
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: theme.textTheme.bodyLarge?.color)),
+        const SizedBox(height: 4),
+        Text(subtitle,
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500)),
+        const SizedBox(height: 20),
+        if (totalToday > 0) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("$completedToday/$totalToday completed",
+                  style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.blue)),
+              Text("${(progress * 100).toInt()}%",
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey.shade600)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: progress),
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) => LinearProgressIndicator(
+              value: value,
+              minHeight: 6,
+              backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ]
+      ],
+    );
+  }
+
+  Widget _buildFilterSortIndicator() {
+    List<String> indicators = [];
+    if (_currentFilter != "All Subjects") {
+      indicators.add("Filtered: $_currentFilter");
+    }
+    if (_currentSort != SortOption.creation) {
+      String sortName = _currentSort == SortOption.highToLow
+          ? "Priority (High → Low)"
+          : "Priority (Low → High)";
+      indicators.add("Sorted: $sortName");
+    }
+
+    if (indicators.isEmpty && !_isGrouped) return const SizedBox.shrink();
+
+    String text = indicators.join(" • ");
+    if (_isGrouped) {
+      text = text.isEmpty ? "Grouped by Subject" : "$text • Grouped";
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, size: 14, color: Colors.grey.shade500),
+          const SizedBox(width: 6),
+          Text(text,
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade500,
+                  fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(ThemeData theme) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 60),
+          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text("Nothing scheduled today.",
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: theme.textTheme.bodyLarge?.color)),
+          const SizedBox(height: 8),
+          Text("Plan your study to build momentum.",
+              style: TextStyle(fontSize: 14, color: Colors.grey.shade500)),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: _showAddTaskSheet,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text("Add First Task"),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.blue,
+              side: const BorderSide(color: Colors.blue),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  // --- REFACTORED GROUPED LIST TO RETURN CHILDREN ---
+  List<Widget> _buildGroupedListChildren(
+      List<Task> tasks, ThemeData theme, bool isDark) {
+    if (tasks.isEmpty) {
+      return [
+        const Center(
+            child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Text("No tasks match filter.")))
+      ];
+    }
+
+    Map<String, List<Task>> groups = _taskService.groupTasksBySubject(tasks);
+    List<String> keys = groups.keys.toList()..sort();
+    List<Widget> children = [];
+
+    for (String subject in keys) {
+      List<Task> groupTasks = groups[subject]!;
+      Color subColor = SubjectColorHelper.getColor(subject);
+
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 16, bottom: 12, left: 4),
+          child: Row(
+            children: [
+              Container(
+                  width: 4,
+                  height: 16,
+                  decoration: BoxDecoration(
+                      color: subColor, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(width: 8),
+              Text(subject,
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: theme.textTheme.bodyLarge?.color)),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    color: subColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10)),
+                child: Text("${groupTasks.length}",
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: subColor)),
+              )
+            ],
+          ),
+        ),
+      );
+      children.addAll(
+          groupTasks.map((t) => _buildModernTaskCard(t, theme, isDark)));
+    }
+    return children;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -507,7 +700,7 @@ class _TaskScreenState extends State<TaskScreen> {
       appBar: AppBar(
         title: Column(
           children: [
-            Text(_isLowEnergyMode ? "One Step at a Time" : "Daily Tasks",
+            Text(_isLowEnergyMode ? "One Step at a Time" : "Execution Panel",
                 style: TextStyle(
                     color: theme.textTheme.bodyLarge?.color,
                     fontWeight: FontWeight.bold,
@@ -539,16 +732,20 @@ class _TaskScreenState extends State<TaskScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _allTodayTasks.isEmpty
-              ? _buildEmptyState(theme)
-              : _isGrouped
-                  ? _buildGroupedList(displayTasks, theme, isDark)
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
-                      itemCount: displayTasks.length,
-                      itemBuilder: (c, i) =>
-                          _buildModernTaskCard(displayTasks[i], theme, isDark),
-                    ),
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+              children: [
+                _buildSummaryHeader(theme, isDark),
+                _buildFilterSortIndicator(),
+                if (_allTodayTasks.isEmpty)
+                  _buildEmptyState(theme)
+                else if (_isGrouped)
+                  ..._buildGroupedListChildren(displayTasks, theme, isDark)
+                else
+                  ...displayTasks
+                      .map((t) => _buildModernTaskCard(t, theme, isDark)),
+              ],
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddTaskSheet,
         backgroundColor: _isLowEnergyMode ? Colors.teal : Colors.blue,
@@ -559,92 +756,7 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- SMART GROUPING VIEW ---
-  Widget _buildGroupedList(List<Task> tasks, ThemeData theme, bool isDark) {
-    if (tasks.isEmpty) {
-      return const Center(child: Text("No tasks match filter."));
-    }
-
-    Map<String, List<Task>> groups = _taskService.groupTasksBySubject(tasks);
-    List<String> keys = groups.keys.toList()..sort();
-
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 80),
-      itemCount: keys.length,
-      itemBuilder: (context, index) {
-        String subject = keys[index];
-        List<Task> groupTasks = groups[subject]!;
-        Color subColor = SubjectColorHelper.getColor(subject);
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 16, bottom: 12, left: 4),
-              child: Row(
-                children: [
-                  Container(
-                      width: 4,
-                      height: 16,
-                      decoration: BoxDecoration(
-                          color: subColor,
-                          borderRadius: BorderRadius.circular(2))),
-                  const SizedBox(width: 8),
-                  Text(subject,
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: theme.textTheme.bodyLarge?.color)),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                        color: subColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(10)),
-                    child: Text("${groupTasks.length}",
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: subColor)),
-                  )
-                ],
-              ),
-            ),
-            ...groupTasks.map((t) => _buildModernTaskCard(t, theme, isDark)),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(30),
-            decoration: BoxDecoration(
-                color: (_isLowEnergyMode ? Colors.teal : Colors.blue)
-                    .withOpacity(0.1),
-                shape: BoxShape.circle),
-            child: Icon(Icons.assignment_add,
-                size: 80,
-                color: (_isLowEnergyMode ? Colors.teal : Colors.blue)
-                    .withOpacity(0.5)),
-          ),
-          const SizedBox(height: 20),
-          Text(_isLowEnergyMode ? "No pressure." : "Ready to focus?",
-              style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: theme.textTheme.bodyLarge?.color)),
-        ],
-      ),
-    );
-  }
-
+  // --- UPGRADED TASK CARD ---
   Widget _buildModernTaskCard(Task task, ThemeData theme, bool isDark) {
     final bool isDone = task.status == TaskStatus.completed;
     final cardColor = theme.cardColor;
@@ -660,7 +772,6 @@ class _TaskScreenState extends State<TaskScreen> {
             ? "Medium"
             : "Deep";
 
-    // NEW: Subject Color
     Color subjectColor = SubjectColorHelper.getColor(task.subject);
 
     String? deadlineString;
@@ -680,126 +791,135 @@ class _TaskScreenState extends State<TaskScreen> {
       }
     }
 
-    return Opacity(
-      opacity: isDone ? 0.6 : 1.0,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border:
-              Border.all(color: isDark ? Colors.white10 : Colors.grey.shade200),
-          boxShadow: isDone || isDark
-              ? []
-              : [
-                  BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4))
-                ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  GestureDetector(
-                    onTap: () => _toggleTask(task),
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 2, right: 12),
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: isDone ? Colors.blue : Colors.transparent,
-                        border: Border.all(
-                            color: isDone
-                                ? Colors.blue
-                                : (isDark
-                                    ? Colors.grey.shade600
-                                    : Colors.grey.shade400),
-                            width: 2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: isDone
-                          ? const Icon(Icons.check,
-                              size: 16, color: Colors.white)
-                          : null,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(task.title,
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: isDone
-                                ? Colors.grey
-                                : theme.textTheme.bodyLarge?.color,
-                            decoration:
-                                isDone ? TextDecoration.lineThrough : null)),
-                  ),
-                  InkWell(
-                      onTap: () => _deleteTask(task),
-                      child: Icon(Icons.close,
-                          size: 20, color: Colors.grey.shade400))
-                ],
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 36, top: 8),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+    return AnimatedScale(
+      scale: isDone ? 0.98 : 1.0,
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOut,
+      child: AnimatedOpacity(
+        opacity: isDone ? 0.6 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: isDark ? Colors.white10 : Colors.grey.shade200),
+            boxShadow: isDone || isDark
+                ? []
+                : [
+                    BoxShadow(
+                        color: Colors.black.withOpacity(0.03),
+                        blurRadius: 8,
+                        offset: const Offset(0, 4))
+                  ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ROW 1: Action, Title, Delete
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (task.subject != null &&
-                        task.subject!.isNotEmpty &&
-                        !_isGrouped)
-                      _buildMiniChip(
-                          text: task.subject!,
-                          icon: Icons.bookmark,
-                          color: subjectColor,
-                          isDark: isDark,
-                          isFilled: true),
-                    _buildMiniChip(
-                        text: effortText,
-                        icon: Icons.bolt,
-                        color: effortColor,
-                        isDark: isDark),
-                    if (task.sessionsCompleted > 0)
-                      _buildMiniChip(
-                          text: "${task.sessionsCompleted}",
-                          icon: Icons.local_fire_department,
-                          color: Colors.deepOrange,
-                          isDark: isDark),
-                    if (deadlineString != null)
-                      _buildMiniChip(
-                          text: deadlineString,
-                          icon: Icons.access_time,
-                          color: isUrgent ? Colors.red : Colors.orange,
-                          isDark: isDark,
-                          isFilled: isUrgent),
+                    GestureDetector(
+                      onTap: () => _toggleTask(task),
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 2, right: 12),
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: isDone ? Colors.blue : Colors.transparent,
+                          border: Border.all(
+                              color: isDone
+                                  ? Colors.blue
+                                  : (isDark
+                                      ? Colors.grey.shade600
+                                      : Colors.grey.shade400),
+                              width: 2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: isDone
+                            ? const Icon(Icons.check,
+                                size: 16, color: Colors.white)
+                            : null,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(task.title,
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: isDone
+                                  ? Colors.grey
+                                  : theme.textTheme.bodyLarge?.color,
+                              decoration:
+                                  isDone ? TextDecoration.lineThrough : null)),
+                    ),
+                    InkWell(
+                        onTap: () => _deleteTask(task),
+                        child: Icon(Icons.close,
+                            size: 20, color: Colors.grey.shade400))
                   ],
                 ),
-              ),
-              if (task.note.isNotEmpty)
+                // ROW 2: Metadata Chips
                 Padding(
                   padding: const EdgeInsets.only(left: 36, top: 10),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Icon(Icons.notes, size: 14, color: Colors.grey.shade400),
-                      const SizedBox(width: 6),
-                      Expanded(
-                          child: Text(task.note,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade500,
-                                  fontStyle: FontStyle.italic))),
+                      if (task.subject != null &&
+                          task.subject!.isNotEmpty &&
+                          !_isGrouped)
+                        _buildMiniChip(
+                            text: task.subject!,
+                            icon: Icons.bookmark,
+                            color: subjectColor,
+                            isDark: isDark,
+                            isFilled: true),
+                      _buildMiniChip(
+                          text: effortText,
+                          icon: Icons.bolt,
+                          color: effortColor,
+                          isDark: isDark),
+                      if (task.sessionsCompleted > 0)
+                        _buildMiniChip(
+                            text: "${task.sessionsCompleted}",
+                            icon: Icons.local_fire_department,
+                            color: Colors.deepOrange,
+                            isDark: isDark),
+                      if (deadlineString != null)
+                        _buildMiniChip(
+                            text: deadlineString,
+                            icon: Icons.access_time,
+                            color: isUrgent ? Colors.red : Colors.orange,
+                            isDark: isDark,
+                            isFilled: isUrgent),
                     ],
                   ),
                 ),
-            ],
+                if (task.note.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 36, top: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.notes,
+                            size: 14, color: Colors.grey.shade400),
+                        const SizedBox(width: 6),
+                        Expanded(
+                            child: Text(task.note,
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade500,
+                                    fontStyle: FontStyle.italic))),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
