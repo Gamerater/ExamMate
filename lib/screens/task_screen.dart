@@ -177,8 +177,9 @@ class _TaskScreenState extends State<TaskScreen> {
           } else {
             String msg =
                 "Streak Active! You are a ${_streakService.getDisciplineIdentity()}";
-            if (task.isTemporary && task.deadline != null)
+            if (task.isTemporary && task.deadline != null) {
               msg = "Completed before deadline! Great focus.";
+            }
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                 content: Text(msg),
                 backgroundColor: Colors.green,
@@ -394,11 +395,12 @@ class _TaskScreenState extends State<TaskScreen> {
                         if (date != null) {
                           final time = await showTimePicker(
                               context: context, initialTime: TimeOfDay.now());
-                          if (time != null)
+                          if (time != null) {
                             setSheetState(() {
                               selectedDate = date;
                               selectedTime = time;
                             });
+                          }
                         }
                       },
                       child: Container(
@@ -559,8 +561,9 @@ class _TaskScreenState extends State<TaskScreen> {
 
   // --- SMART GROUPING VIEW ---
   Widget _buildGroupedList(List<Task> tasks, ThemeData theme, bool isDark) {
-    if (tasks.isEmpty)
+    if (tasks.isEmpty) {
       return const Center(child: Text("No tasks match filter."));
+    }
 
     Map<String, List<Task>> groups = _taskService.groupTasksBySubject(tasks);
     List<String> keys = groups.keys.toList()..sort();

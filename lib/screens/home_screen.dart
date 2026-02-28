@@ -21,6 +21,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final StreakService _streakService = StreakService();
   bool _isLoading = true;
   bool _isLowEnergyMode = false;
+  int _todayMoodRating = 0;
+  DateTime? _targetDateObj;
 
   @override
   void initState() {
@@ -50,7 +52,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshNotification() async {
-    // FIX: Check if service is ready/safe to access
     if (_streakService.isSilentMode) return;
 
     try {
@@ -110,18 +111,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _examName = savedExam;
+          _targetDateObj = targetDate;
           _daysLeft = difference < 0 ? 0 : difference;
           _rawDifference = difference;
           _isCustomExam = !AppConstants.availableExams.contains(savedExam);
           _isLowEnergyMode = lowEnergy;
-          // _isLoading is handled in finally block to ensure it always turns off
+          _todayMoodRating = rating;
         });
       }
     } catch (e) {
       debugPrint("Error loading data: $e");
-      // Optional: Set an error state text here if needed
     } finally {
-      // FIX: Ensure loading spinner stops even if data loading fails
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -175,7 +175,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
         decoration: BoxDecoration(
-          // FIX: withValues replaced with withOpacity for compatibility
           border: Border.all(color: Colors.grey.withOpacity(0.3)),
           borderRadius: BorderRadius.circular(12),
         ),
@@ -188,6 +187,90 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  void _showJourneyDetails() {
+    // Conceptual total: Days Left + Days already committed (Streak)
+    final int totalDays = _daysLeft + _streakService.currentStreak;
+    final double progress =
+        totalDays > 0 ? (_streakService.currentStreak / totalDays) : 0.0;
+
+    final String dateStr = _targetDateObj != null
+        ? "${_targetDateObj!.day.toString().padLeft(2, '0')}/${_targetDateObj!.month.toString().padLeft(2, '0')}/${_targetDateObj!.year}"
+        : "N/A";
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(28.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Journey Overview",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+            _buildJourneyRow("Target Goal", _examName),
+            const Divider(height: 24),
+            _buildJourneyRow("Target Date", dateStr),
+            const Divider(height: 24),
+            _buildJourneyRow("Days Remaining", "$_daysLeft days"),
+            const Divider(height: 24),
+            _buildJourneyRow("Estimated Journey", "$totalDays days"),
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text("Progress",
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[600])),
+                Text("${(progress * 100).toStringAsFixed(1)}%",
+                    style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.grey.withOpacity(0.2),
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJourneyRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: TextStyle(
+                fontSize: 15,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500)),
+        Text(value,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
+
+  String _getMoodString() {
+    if (_todayMoodRating == 1) return "Today's Mood: 🟢 Focused";
+    if (_todayMoodRating == 2) return "Today's Mood: 🟡 Struggled";
+    if (_todayMoodRating == 3) return "Today's Mood: 🔵 Low Energy";
+    return "Tap to log today's mood";
   }
 
   void _safeNavigate(String routeName) {
@@ -204,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final isDark = theme.brightness == Brightness.dark;
 
     final cardTextColor = isDark ? Colors.white : Colors.grey[900];
-    final subtitleColor = isDark ? Colors.grey[500] : Colors.grey[600];
+    final subtitleColor = isDark ? Colors.grey[400] : Colors.grey[600];
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -241,15 +324,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           color: Colors.grey[600],
                           fontWeight: FontWeight.w500),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8), // Tightened spacing
 
-                    // --- MAIN DASHBOARD CARD ---
+                    // --- ANCHOR SECTION (Reordered to top) ---
+                    if (_streakService.userWhy.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border:
+                              Border.all(color: Colors.orange.withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.anchor,
+                                size: 16, color: Colors.orange[800]),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                '"${_streakService.userWhy}"',
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                    color: isDark
+                                        ? Colors.grey[300]
+                                        : Colors.grey[800]),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16), // Tightened spacing
+                    ] else ...[
+                      const SizedBox(height: 8),
+                    ],
+
+                    // --- MAIN DASHBOARD CARD (Interactive) ---
                     Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: _isLowEnergyMode
                               ? (isDark
-                                  ? [Colors.blueGrey.shade900, Colors.black45]
+                                  ? [
+                                      Colors.blueGrey.shade900,
+                                      Colors.blueGrey.shade800
+                                    ]
                                   : [
                                       Colors.blueGrey.shade100,
                                       Colors.blueGrey.shade50
@@ -268,32 +390,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         boxShadow: [
                           if (!_isLowEnergyMode)
                             BoxShadow(
-                                // FIX: withValues -> withOpacity
                                 color: Colors.black
                                     .withOpacity(isDark ? 0.3 : 0.05),
                                 blurRadius: 20,
                                 offset: const Offset(0, 10)),
                         ],
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          children: [
-                            // TOP ROW: Exam Name & Identity
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _showJourneyDetails,
+                          borderRadius: BorderRadius.circular(24),
+                          child: Padding(
+                            padding: const EdgeInsets.all(24.0),
+                            child: Column(
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    // FIX: withValues -> withOpacity
-                                    color: Colors.blue.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Text(
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
                                         _streakService
                                             .getDisciplineIdentity()
                                             .toUpperCase(),
@@ -303,93 +426,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                             fontSize: 10,
                                             letterSpacing: 1.0),
                                       ),
-                                    ],
+                                    ),
+                                    Icon(Icons.insights,
+                                        size: 18,
+                                        color: Colors.grey.withOpacity(
+                                            0.5)), // Hint that it's clickable
+                                  ],
+                                ),
+                                const SizedBox(height: 24),
+
+                                // NEW CLARIFIED LANGUAGE
+                                Text(
+                                  _rawDifference < 0 ? "Done" : '$_daysLeft',
+                                  style: TextStyle(
+                                    fontSize: _rawDifference < 0 ? 48 : 72,
+                                    fontWeight: FontWeight.w900,
+                                    color: cardTextColor,
+                                    height: 1.0,
+                                    letterSpacing: -2.0,
                                   ),
                                 ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _rawDifference < 0
+                                      ? 'Goal Completed'
+                                      : 'Days Until $_examName',
+                                  style: TextStyle(
+                                      fontSize: 18,
+                                      color: cardTextColor,
+                                      fontWeight: FontWeight.w700),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Show up every day.',
+                                  style: TextStyle(
+                                      fontSize: 14,
+                                      color: subtitleColor,
+                                      fontWeight: FontWeight.w500),
+                                ),
+                                const SizedBox(height: 16),
                               ],
                             ),
-
-                            const SizedBox(height: 30),
-
-                            // CENTER: Countdown
-                            Text(
-                              _rawDifference < 0 ? "Done" : '$_daysLeft',
-                              style: TextStyle(
-                                fontSize: _rawDifference < 0 ? 48 : 72,
-                                fontWeight: FontWeight.w900,
-                                color: cardTextColor,
-                                height: 1.0,
-                                letterSpacing: -2.0,
-                              ),
-                            ),
-
-                            Text(
-                              _rawDifference < 0
-                                  ? 'Goal Completed'
-                                  : 'Chances to show up',
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  color: subtitleColor,
-                                  fontWeight: FontWeight.w500),
-                            ),
-                            const SizedBox(height: 30),
-                          ],
+                          ),
                         ),
                       ),
                     ),
 
-                    if (_streakService.userWhy.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          // FIX: withValues -> withOpacity
-                          color: Colors.orange.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border:
-                              Border.all(color: Colors.orange.withOpacity(0.2)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("YOUR ANCHOR",
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.orange[800],
-                                    letterSpacing: 1.2)),
-                            const SizedBox(height: 4),
-                            Text('"${_streakService.userWhy}"',
-                                style: TextStyle(
-                                    fontSize: 14,
-                                    fontStyle: FontStyle.italic,
-                                    color: isDark
-                                        ? Colors.grey[300]
-                                        : Colors.grey[800])),
-                          ],
-                        ),
-                      ),
-                    ],
-
                     const SizedBox(height: 32),
-
-                    if (!_streakService.hasActionToday) ...[
-                      ElevatedButton.icon(
-                        onPressed: _showHonestDayDialog,
-                        icon: const Icon(Icons.mood, size: 18),
-                        label: const Text("Log Today's Mood"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.cardColor,
-                          foregroundColor: theme.textTheme.bodyLarge?.color,
-                          elevation: 0,
-                          side: BorderSide(
-                              // FIX: withValues -> withOpacity
-                              color: Colors.grey.withOpacity(0.2)),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
 
                     Padding(
                       padding: const EdgeInsets.only(left: 8.0),
@@ -410,7 +494,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           label: 'Daily Tasks',
                           iconColor: Colors.green),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12), // Tightened
                     _BouncingButton(
                       onTap: () => _safeNavigate('/progress'),
                       child: _buildModernButtonContent(context,
@@ -418,21 +502,44 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           label: 'My Progress',
                           iconColor: Colors.purple),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12), // Tightened
                     _BouncingButton(
-                      onTap: () {
-                        // Pomodoro usually doesn't need data reload on return
-                        try {
-                          Navigator.pushNamed(context, '/pomodoro');
-                        } catch (e) {
-                          debugPrint("$e");
-                        }
-                      },
+                      onTap: () => _safeNavigate('/pomodoro'),
                       child: _buildModernButtonContent(context,
                           icon: Icons.timer_outlined,
                           label: 'Pomodoro Timer',
                           iconColor: Colors.deepPurpleAccent),
                     ),
+
+                    const SizedBox(height: 32),
+
+                    // --- SUBTLE MOOD INTEGRATION ---
+                    Center(
+                      child: InkWell(
+                        onTap: _showHonestDayDialog,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16.0, vertical: 8.0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _getMoodString(),
+                                style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey[500]),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(Icons.edit,
+                                  size: 12, color: Colors.grey[500]),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                   ],
                 ),
               ),
@@ -452,7 +559,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-              // FIX: withValues -> withOpacity
               color: Colors.black.withOpacity(isDark ? 0.2 : 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4))
@@ -466,7 +572,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                  // FIX: withValues -> withOpacity
                   color: iconColor.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: iconColor, size: 26),
@@ -498,13 +603,15 @@ class _BouncingButtonState extends State<_BouncingButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
+
   @override
   void initState() {
     super.initState();
+    // Adjusted to 120ms and eased curve for a premium, non-bouncy feel
     _controller = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 100));
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95)
-        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+        vsync: this, duration: const Duration(milliseconds: 120));
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.97)
+        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
   }
 
   @override
@@ -519,11 +626,9 @@ class _BouncingButtonState extends State<_BouncingButton>
       onTapDown: (_) {
         if (mounted) _controller.forward();
       },
-      // FIX: Move action to onTap for proper gesture handling
       onTap: () {
         widget.onTap();
       },
-      // FIX: Use onTapUp/Cancel only for animation reset
       onTapUp: (_) {
         if (mounted) _controller.reverse();
       },

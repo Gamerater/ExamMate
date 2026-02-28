@@ -11,10 +11,14 @@ class TaskService {
     List<Task> sorted = List.from(tasks);
     sorted.sort((a, b) {
       // Completed always at bottom
-      if (a.status == TaskStatus.completed && b.status != TaskStatus.completed)
+      if (a.status == TaskStatus.completed &&
+          b.status != TaskStatus.completed) {
         return 1;
-      if (a.status != TaskStatus.completed && b.status == TaskStatus.completed)
+      }
+      if (a.status != TaskStatus.completed &&
+          b.status == TaskStatus.completed) {
         return -1;
+      }
 
       switch (sortOption) {
         case SortOption.highToLow:
