@@ -21,7 +21,6 @@ class NotificationService {
       tz.initializeTimeZones();
 
       // 2. Android Settings
-      // NOTE: Ensure 'ic_launcher' exists in android/app/src/main/res/mipmap-*/
       const AndroidInitializationSettings initializationSettingsAndroid =
           AndroidInitializationSettings('@mipmap/ic_launcher');
 
@@ -43,9 +42,7 @@ class NotificationService {
       await flutterLocalNotificationsPlugin.initialize(
         initializationSettings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {
-          // Handle notification tap logic here
           debugPrint("🔔 Notification Tapped: ${response.payload}");
-          // You can add navigation logic here using a GlobalKey or Navigator
         },
       );
 
@@ -66,7 +63,7 @@ class NotificationService {
 
         final bool? granted =
             await androidImplementation?.requestNotificationsPermission();
-        return granted ?? false; // Safely return false if null
+        return granted ?? false; 
       } else if (Platform.isIOS) {
         final IOSFlutterLocalNotificationsPlugin? iosImplementation =
             flutterLocalNotificationsPlugin
@@ -87,7 +84,6 @@ class NotificationService {
   }
 
   /// Calculate the next specific time (e.g., 8:00 PM) in UTC
-  /// This ensures the notification triggers at the correct local time
   tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {
     final DateTime nowLocal = DateTime.now();
 
@@ -104,31 +100,26 @@ class NotificationService {
       scheduledLocal = scheduledLocal.add(const Duration(days: 1));
     }
 
-    // Convert to UTC for the plugin (Absolute Time Interpretation)
     return tz.TZDateTime.from(scheduledLocal.toUtc(), tz.UTC);
   }
 
   /// Schedule a daily repeating reminder
   Future<void> scheduleDailyReminder(int hour, int minute) async {
     try {
-      // 1. Generate Message (Async)
-      final String smartBody = await _generateMotivationalMessage();
+      // 1. Generate Context-Aware Message (Async)
+      final Map<String, String> messageData = await _generateContextualMessage();
 
       // 2. Calculate Time (UTC)
       final tz.TZDateTime scheduledDate = _nextInstanceOfTime(hour, minute);
 
       // 3. Define Notification Details
-      // CRITICAL: ID changed to 'v4' to force update channel settings on devices
       const AndroidNotificationDetails androidDetails =
           AndroidNotificationDetails(
-        'daily_reminder_channel_v4',
+        'daily_reminder_channel_v5', // Iterated ID to force update
         'Daily Study Reminder',
-        channelDescription: 'Reminds you to study every day',
-        importance: Importance.max, // Max importance to show heads-up
+        channelDescription: 'Reminds you to study every day based on your tasks',
+        importance: Importance.max, 
         priority: Priority.high,
-        ticker: 'Time to study!',
-        // Optional: Add sound here if needed
-        // sound: RawResourceAndroidNotificationSound('notification_sound'),
       );
 
       const NotificationDetails platformDetails =
@@ -140,63 +131,94 @@ class NotificationService {
       // 5. Schedule
       await flutterLocalNotificationsPlugin.zonedSchedule(
         0,
-        'ExamMate 🎓',
-        smartBody,
+        messageData['title'],
+        messageData['body'],
         scheduledDate,
         platformDetails,
-        // Inexact is battery-friendly and doesn't require special permission
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
         matchDateTimeComponents: DateTimeComponents.time, // REPEATS DAILY
       );
 
-      debugPrint(
-          "✅ Notification Scheduled: $scheduledDate (UTC) with body: $smartBody");
+      debugPrint("✅ Notification Scheduled: $scheduledDate (UTC) -> Title: ${messageData['title']}");
     } catch (e) {
       debugPrint("🚨 Error scheduling notification: $e");
     }
   }
 
-  Future<String> _generateMotivationalMessage() async {
+  /// Generates a Title and Body based on the user's task status for the day.
+  Future<Map<String, String>> _generateContextualMessage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final int streak = prefs.getInt('current_streak') ?? 0;
-      final String? examDateStr = prefs.getString('exam_date');
-      final List<String> tasks =
-          prefs.getStringList('tasks_data') ?? []; // Fixed key name
+      final String? tasksString = prefs.getString('tasks_data');
 
-      int pendingCount = 0;
-      if (tasks.isNotEmpty) {
-        // Simple check if list exists, detailed parsing might be overkill for just a count
-        // Assuming json structure
-        pendingCount = tasks.length;
+      int totalToday = 0;
+      int completedToday = 0;
+
+      // Parse JSON string into task maps
+      if (tasksString != null && tasksString.isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(tasksString);
+        final now = DateTime.now();
+        final todayStart = DateTime(now.year, now.month, now.day);
+
+        for (var item in decoded) {
+          // Check task date
+          DateTime tDate = DateTime.now();
+          if (item['date'] != null) {
+             tDate = DateTime.tryParse(item['date'].toString()) ?? DateTime.now();
+          }
+          DateTime cleanDate = DateTime(tDate.year, tDate.month, tDate.day);
+
+          // Only count tasks that are for today or rolled over to today
+          if (cleanDate.isAtSameMomentAs(todayStart) || cleanDate.isAfter(todayStart)) {
+            totalToday++;
+            
+            // Check completion status (legacy 'isCompleted' or new 'status' enum)
+            bool isDone = (item['isCompleted'] == true) || (item['status'] == 1); 
+            if (isDone) {
+              completedToday++;
+            }
+          }
+        }
       }
 
-      int daysLeft = 0;
-      if (examDateStr != null) {
-        try {
-          final examDate = DateTime.parse(examDateStr);
-          daysLeft = examDate.difference(DateTime.now()).inDays;
-        } catch (_) {}
+      int remainingTasks = totalToday - completedToday;
+
+      // CASE 1: No tasks exist
+      if (totalToday == 0) {
+        return {
+          'title': 'Plan your study',
+          'body': 'Add tasks to start building your streak.'
+        };
       }
 
-      if (daysLeft > 0 && daysLeft <= 60) {
-        return "$daysLeft days left. Make today count.";
+      // CASE 2: All tasks completed
+      if (remainingTasks <= 0) {
+        return {
+          'title': 'Nice work today',
+          'body': 'Momentum secured. See you tomorrow.'
+        };
       }
-      if (streak >= 3) {
-        return "You're on a $streak-day streak! Keep it alive 🔥";
-      }
-      if (pendingCount > 0) {
-        return "You have pending tasks waiting. Knock one out?";
-      }
+
+      // CASE 3: Tasks remaining
+      return {
+        'title': 'Keep the streak alive',
+        'body': 'You still have $remainingTasks task(s) left today.'
+      };
+
     } catch (e) {
-      debugPrint("Message gen error: $e");
+      debugPrint("🚨 Message gen error: $e");
+      
+      // Safe Fallback if parsing fails
+      return {
+        'title': 'ExamMate 🎓',
+        'body': 'Consistency beats intensity. Time for a quick session.'
+      };
     }
-    return "Consistency beats intensity. Time for a quick session.";
   }
 
-  /// Cancel all notifications (e.g., when user disables toggle)
+  /// Cancel all notifications
   Future<void> cancelNotifications() async {
     try {
       await flutterLocalNotificationsPlugin.cancelAll();
