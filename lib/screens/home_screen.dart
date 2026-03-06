@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/task.dart';
 import '../utils/constants.dart';
+import '../utils/subject_color_helper.dart';
 import '../services/notification_service.dart';
 import '../services/streak_service.dart';
 import '../services/task_service.dart';
@@ -26,6 +29,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isLowEnergyMode = false;
   int _todayMoodRating = 0;
   DateTime? _targetDateObj;
+  
+  // Smart Task State
+  Task? _nextTask;
 
   @override
   void initState() {
@@ -86,7 +92,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _loadData() async {
     try {
-      // 1. SMART DAILY RESET CHECK
       bool didReset = await _taskService.performDailyResetIfNeeded();
       if (didReset && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -100,6 +105,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       await _streakService.init();
+      await _loadNextTask(); // Load the smart suggestion
+
       final prefs = await SharedPreferences.getInstance();
 
       final savedExam = prefs.getString('selected_exam') ?? "General Exam";
@@ -140,6 +147,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  // --- SMART NEXT TASK LOGIC ---
+  Future<void> _loadNextTask() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? tasksString = prefs.getString('tasks_data');
+      
+      if (tasksString == null || tasksString.isEmpty) {
+        if (mounted) setState(() => _nextTask = null);
+        return;
+      }
+
+      final List<dynamic> decoded = jsonDecode(tasksString);
+      final allTasks = decoded.map((e) => Task.fromMap(e)).toList();
+      final now = DateTime.now();
+      final todayStart = DateTime(now.year, now.month, now.day);
+
+      List<Task> pending = allTasks.where((t) {
+        if (t.isCompleted || t.status == TaskStatus.completed) return false;
+        if (t.isTemporary && t.deadline != null && t.deadline!.isBefore(now)) return false;
+        
+        final tDate = DateTime(t.date.year, t.date.month, t.date.day);
+        if (tDate.isAfter(todayStart)) return false; // Ignore future tasks
+        
+        return true;
+      }).toList();
+
+      if (pending.isEmpty) {
+        if (mounted) setState(() => _nextTask = null);
+        return;
+      }
+
+      // Sort by Priority (Effort) descending, then Earliest Created
+      pending.sort((a, b) {
+        int effortCompare = b.effort.index.compareTo(a.effort.index);
+        if (effortCompare != 0) return effortCompare;
+        return a.createdAt.compareTo(b.createdAt);
+      });
+
+      if (mounted) {
+        setState(() => _nextTask = pending.first);
+      }
+    } catch (e) {
+      debugPrint("Error finding next task: $e");
     }
   }
 
@@ -272,6 +325,111 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  // --- FOCUS NEXT WIDGET ---
+  Widget _buildFocusNextCard(ThemeData theme, bool isDark) {
+    if (_nextTask == null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(20),
+          border: isDark ? Border.all(color: Colors.white10) : Border.all(color: Colors.grey.shade200),
+        ),
+        child: Column(
+          children: [
+            Text("No tasks pending today.", style: TextStyle(color: Colors.grey.shade500, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: () => _safeNavigate('/tasks'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.blue,
+                side: const BorderSide(color: Colors.blue),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text("Add Task"),
+            )
+          ],
+        ),
+      );
+    }
+
+    Color effortColor = _nextTask!.effort == TaskEffort.quick ? Colors.amber : _nextTask!.effort == TaskEffort.medium ? Colors.blue : Colors.deepPurple;
+    String effortText = _nextTask!.effort == TaskEffort.quick ? "Quick" : _nextTask!.effort == TaskEffort.medium ? "Medium" : "Deep";
+    Color subjectColor = SubjectColorHelper.getColor(_nextTask!.subject);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(20),
+        border: isDark ? Border.all(color: Colors.white10) : Border.all(color: Colors.grey.shade200),
+        boxShadow: isDark ? [] : [
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _nextTask!.title, 
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: theme.textTheme.bodyLarge?.color),
+                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (_nextTask!.subject != null && _nextTask!.subject!.isNotEmpty)
+                      _buildMiniChip(text: _nextTask!.subject!, icon: Icons.bookmark, color: subjectColor, isDark: isDark, isFilled: true),
+                    _buildMiniChip(text: effortText, icon: Icons.bolt, color: effortColor, isDark: isDark),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          ElevatedButton(
+            onPressed: () {
+              // Pass the task as an argument to auto-link
+              Navigator.pushNamed(context, '/pomodoro', arguments: _nextTask).then((_) => _loadData());
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+            ),
+            child: const Text("Start Focus", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniChip({required String text, required IconData icon, required Color color, required bool isDark, bool isFilled = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isFilled ? color.withOpacity(0.15) : (isDark ? Colors.white.withOpacity(0.05) : Colors.grey.shade100),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: isFilled ? color.withOpacity(0.3) : (isDark ? Colors.white10 : Colors.grey.shade200)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isFilled ? (isDark ? color.withOpacity(0.9) : color.withOpacity(1.0)) : Colors.grey.shade500)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -356,10 +514,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           if (!_isLowEnergyMode)
-                            BoxShadow(
-                                color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10)),
+                            BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.05), blurRadius: 20, offset: const Offset(0, 10)),
                         ],
                       ),
                       child: Material(
@@ -417,6 +572,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
+
+                    const SizedBox(height: 32),
+
+                    // --- NEW: FOCUS NEXT SECTION ---
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: Text('Focus Next', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.grey[300] : Colors.grey[800])),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildFocusNextCard(theme, isDark),
 
                     const SizedBox(height: 32),
 
