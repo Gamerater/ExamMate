@@ -299,14 +299,13 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- NEW: QUICK ADD FLOW ---
   void _showQuickAddSheet() {
     String title = "";
     final TextEditingController textController = TextEditingController();
 
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Allows sheet to push up with keyboard
+      isScrollControlled: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -328,12 +327,11 @@ class _TaskScreenState extends State<TaskScreen> {
                 decoration: InputDecoration(
                   hintText: "Enter task name...",
                   hintStyle: TextStyle(color: Colors.grey.shade400),
-                  border: InputBorder.none, // Clean look
+                  border: InputBorder.none,
                 ),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
                 onChanged: (val) => title = val,
                 onSubmitted: (val) {
-                  // Allow submitting via keyboard 'Done'/'Enter'
                   if (val.trim().isNotEmpty) {
                     _addTask(val, null, "", TaskEffort.medium, null);
                     Navigator.pop(context);
@@ -351,8 +349,8 @@ class _TaskScreenState extends State<TaskScreen> {
                 children: [
                   TextButton(
                     onPressed: () {
-                      Navigator.pop(context); // Close Quick Add
-                      _showAddTaskSheet();    // Open Full Dialog
+                      Navigator.pop(context);
+                      _showAddTaskSheet();
                     },
                     style: TextButton.styleFrom(foregroundColor: Colors.grey.shade600),
                     child: const Text("More options"),
@@ -385,7 +383,6 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- FULL ADD TASK FLOW (PRESERVED) ---
   void _showAddTaskSheet() {
     String title = "";
     String subject = "";
@@ -699,7 +696,7 @@ class _TaskScreenState extends State<TaskScreen> {
               style: TextStyle(fontSize: 14, color: Colors.grey.shade500)),
           const SizedBox(height: 24),
           OutlinedButton.icon(
-            onPressed: _showQuickAddSheet, // Changed to trigger Quick Add
+            onPressed: _showQuickAddSheet,
             icon: const Icon(Icons.add, size: 18),
             label: const Text("Add First Task"),
             style: OutlinedButton.styleFrom(
@@ -833,7 +830,7 @@ class _TaskScreenState extends State<TaskScreen> {
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showQuickAddSheet, // UPDATED TO QUICK ADD
+        onPressed: _showQuickAddSheet,
         backgroundColor: _isLowEnergyMode ? Colors.teal : Colors.blue,
         icon: const Icon(Icons.add, color: Colors.white),
         label: Text(_isLowEnergyMode ? "Add 1 Thing" : "New Task",
@@ -842,7 +839,7 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- UPGRADED TASK CARD ---
+  // --- UPGRADED TASK CARD WITH SWIPE GESTURES ---
   Widget _buildModernTaskCard(Task task, ThemeData theme, bool isDark) {
     final bool isDone = task.status == TaskStatus.completed;
     final cardColor = theme.cardColor;
@@ -877,134 +874,212 @@ class _TaskScreenState extends State<TaskScreen> {
       }
     }
 
-    return AnimatedScale(
-      scale: isDone ? 0.98 : 1.0,
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOut,
-      child: AnimatedOpacity(
-        opacity: isDone ? 0.6 : 1.0,
-        duration: const Duration(milliseconds: 150),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-                color: isDark ? Colors.white10 : Colors.grey.shade200),
-            boxShadow: isDone || isDark
-                ? []
-                : [
-                    BoxShadow(
-                        color: Colors.black.withOpacity(0.03),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4))
-                  ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ROW 1: Action, Title, Delete
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    GestureDetector(
-                      onTap: () => _toggleTask(task),
-                      child: Container(
-                        margin: const EdgeInsets.only(top: 2, right: 12),
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          color: isDone ? Colors.blue : Colors.transparent,
-                          border: Border.all(
-                              color: isDone
-                                  ? Colors.blue
-                                  : (isDark
-                                      ? Colors.grey.shade600
-                                      : Colors.grey.shade400),
-                              width: 2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: isDone
-                            ? const Icon(Icons.check,
-                                size: 16, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(task.title,
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: isDone
-                                  ? Colors.grey
-                                  : theme.textTheme.bodyLarge?.color,
-                              decoration:
-                                  isDone ? TextDecoration.lineThrough : null)),
-                    ),
-                    InkWell(
-                        onTap: () => _deleteTask(task),
-                        child: Icon(Icons.close,
-                            size: 20, color: Colors.grey.shade400))
-                  ],
+    // Background for Swiping Right (Complete)
+    Widget swipeRightBackground = Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.green,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.only(left: 24),
+      child: const Icon(Icons.check, color: Colors.white, size: 28),
+    );
+
+    // Background for Swiping Left (Delete)
+    Widget swipeLeftBackground = Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.red,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      alignment: Alignment.centerRight,
+      padding: const EdgeInsets.only(right: 24),
+      child: const Icon(Icons.delete_outline, color: Colors.white, size: 28),
+    );
+
+    return Dismissible(
+      key: ValueKey(task.id),
+      // Only allow swipe to delete if it's already done, otherwise allow both
+      direction: isDone ? DismissDirection.endToStart : DismissDirection.horizontal,
+      background: swipeRightBackground,
+      secondaryBackground: swipeLeftBackground,
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // SWIPE RIGHT -> COMPLETE
+          if (!isDone) {
+            await _toggleTask(task);
+            // We return false so the widget snaps back visually, 
+            // but the state update moves it down the list normally.
+          }
+          return false; 
+        } else if (direction == DismissDirection.endToStart) {
+          // SWIPE LEFT -> DELETE
+          bool confirm = await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Delete this task?", style: TextStyle(fontWeight: FontWeight.bold)),
+              content: const Text("This action cannot be undone."),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
                 ),
-                // ROW 2: Metadata Chips
-                Padding(
-                  padding: const EdgeInsets.only(left: 36, top: 10),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("Delete", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ) ?? false;
+
+          if (confirm) {
+            await _deleteTask(task);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Task deleted"), duration: Duration(seconds: 2))
+              );
+            }
+            return true; // Let Dismissible remove the widget from the tree immediately
+          }
+          return false;
+        }
+        return false;
+      },
+      child: AnimatedScale(
+        scale: isDone ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        child: AnimatedOpacity(
+          opacity: isDone ? 0.6 : 1.0,
+          duration: const Duration(milliseconds: 150),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                  color: isDark ? Colors.white10 : Colors.grey.shade200),
+              boxShadow: isDone || isDark
+                  ? []
+                  : [
+                      BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4))
+                    ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ROW 1: Action, Title, Delete
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (task.subject != null &&
-                          task.subject!.isNotEmpty &&
-                          !_isGrouped)
-                        _buildMiniChip(
-                            text: task.subject!,
-                            icon: Icons.bookmark,
-                            color: subjectColor,
-                            isDark: isDark,
-                            isFilled: true),
-                      _buildMiniChip(
-                          text: effortText,
-                          icon: Icons.bolt,
-                          color: effortColor,
-                          isDark: isDark),
-                      if (task.sessionsCompleted > 0)
-                        _buildMiniChip(
-                            text: "${task.sessionsCompleted}",
-                            icon: Icons.local_fire_department,
-                            color: Colors.deepOrange,
-                            isDark: isDark),
-                      if (deadlineString != null)
-                        _buildMiniChip(
-                            text: deadlineString,
-                            icon: Icons.access_time,
-                            color: isUrgent ? Colors.red : Colors.orange,
-                            isDark: isDark,
-                            isFilled: isUrgent),
+                      GestureDetector(
+                        onTap: () => _toggleTask(task),
+                        child: Container(
+                          margin: const EdgeInsets.only(top: 2, right: 12),
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: isDone ? Colors.blue : Colors.transparent,
+                            border: Border.all(
+                                color: isDone
+                                    ? Colors.blue
+                                    : (isDark
+                                        ? Colors.grey.shade600
+                                        : Colors.grey.shade400),
+                                width: 2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: isDone
+                              ? const Icon(Icons.check,
+                                  size: 16, color: Colors.white)
+                              : null,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(task.title,
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: isDone
+                                    ? Colors.grey
+                                    : theme.textTheme.bodyLarge?.color,
+                                decoration:
+                                    isDone ? TextDecoration.lineThrough : null)),
+                      ),
+                      InkWell(
+                          onTap: () => _deleteTask(task),
+                          child: Icon(Icons.close,
+                              size: 20, color: Colors.grey.shade400))
                     ],
                   ),
-                ),
-                if (task.note.isNotEmpty)
+                  // ROW 2: Metadata Chips
                   Padding(
-                    padding: const EdgeInsets.only(left: 36, top: 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    padding: const EdgeInsets.only(left: 36, top: 10),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        Icon(Icons.notes,
-                            size: 14, color: Colors.grey.shade400),
-                        const SizedBox(width: 6),
-                        Expanded(
-                            child: Text(task.note,
-                                style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade500,
-                                    fontStyle: FontStyle.italic))),
+                        if (task.subject != null &&
+                            task.subject!.isNotEmpty &&
+                            !_isGrouped)
+                          _buildMiniChip(
+                              text: task.subject!,
+                              icon: Icons.bookmark,
+                              color: subjectColor,
+                              isDark: isDark,
+                              isFilled: true),
+                        _buildMiniChip(
+                            text: effortText,
+                            icon: Icons.bolt,
+                            color: effortColor,
+                            isDark: isDark),
+                        if (task.sessionsCompleted > 0)
+                          _buildMiniChip(
+                              text: "${task.sessionsCompleted}",
+                              icon: Icons.local_fire_department,
+                              color: Colors.deepOrange,
+                              isDark: isDark),
+                        if (deadlineString != null)
+                          _buildMiniChip(
+                              text: deadlineString,
+                              icon: Icons.access_time,
+                              color: isUrgent ? Colors.red : Colors.orange,
+                              isDark: isDark,
+                              isFilled: isUrgent),
                       ],
                     ),
                   ),
-              ],
+                  if (task.note.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 36, top: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.notes,
+                              size: 14, color: Colors.grey.shade400),
+                          const SizedBox(width: 6),
+                          Expanded(
+                              child: Text(task.note,
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.grey.shade500,
+                                      fontStyle: FontStyle.italic))),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
