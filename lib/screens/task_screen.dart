@@ -299,6 +299,93 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
+  // --- NEW: QUICK ADD FLOW ---
+  void _showQuickAddSheet() {
+    String title = "";
+    final TextEditingController textController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // Allows sheet to push up with keyboard
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              top: 24,
+              left: 24,
+              right: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: textController,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  hintText: "Enter task name...",
+                  hintStyle: TextStyle(color: Colors.grey.shade400),
+                  border: InputBorder.none, // Clean look
+                ),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                onChanged: (val) => title = val,
+                onSubmitted: (val) {
+                  // Allow submitting via keyboard 'Done'/'Enter'
+                  if (val.trim().isNotEmpty) {
+                    _addTask(val, null, "", TaskEffort.medium, null);
+                    Navigator.pop(context);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Task added"), duration: Duration(seconds: 1)),
+                      );
+                    }
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context); // Close Quick Add
+                      _showAddTaskSheet();    // Open Full Dialog
+                    },
+                    style: TextButton.styleFrom(foregroundColor: Colors.grey.shade600),
+                    child: const Text("More options"),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      if (title.trim().isNotEmpty) {
+                        _addTask(title, null, "", TaskEffort.medium, null);
+                        Navigator.pop(context);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Task added"), duration: Duration(seconds: 1)),
+                          );
+                        }
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)
+                    ),
+                    child: const Text("Add Task", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              )
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // --- FULL ADD TASK FLOW (PRESERVED) ---
   void _showAddTaskSheet() {
     String title = "";
     String subject = "";
@@ -489,7 +576,7 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- NEW UI COMPONENTS ---
+  // --- UI COMPONENTS ---
 
   Widget _buildSummaryHeader(ThemeData theme, bool isDark) {
     int totalToday = _allTodayTasks.length;
@@ -612,7 +699,7 @@ class _TaskScreenState extends State<TaskScreen> {
               style: TextStyle(fontSize: 14, color: Colors.grey.shade500)),
           const SizedBox(height: 24),
           OutlinedButton.icon(
-            onPressed: _showAddTaskSheet,
+            onPressed: _showQuickAddSheet, // Changed to trigger Quick Add
             icon: const Icon(Icons.add, size: 18),
             label: const Text("Add First Task"),
             style: OutlinedButton.styleFrom(
@@ -627,7 +714,6 @@ class _TaskScreenState extends State<TaskScreen> {
     );
   }
 
-  // --- REFACTORED GROUPED LIST TO RETURN CHILDREN ---
   List<Widget> _buildGroupedListChildren(
       List<Task> tasks, ThemeData theme, bool isDark) {
     if (tasks.isEmpty) {
@@ -747,11 +833,11 @@ class _TaskScreenState extends State<TaskScreen> {
               ],
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddTaskSheet,
+        onPressed: _showQuickAddSheet, // UPDATED TO QUICK ADD
         backgroundColor: _isLowEnergyMode ? Colors.teal : Colors.blue,
         icon: const Icon(Icons.add, color: Colors.white),
         label: Text(_isLowEnergyMode ? "Add 1 Thing" : "New Task",
-            style: const TextStyle(color: Colors.white)),
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
     );
   }
